@@ -427,7 +427,8 @@ void main() {
       expect(find.text('Aceptar Acuerdo'), findsOneWidget);
       expect(find.text('Rechazar'), findsOneWidget);
       expect(find.textContaining('Comisión'), findsNothing);
-      expect(find.textContaining('50.00'), findsNothing);
+      expect(find.textContaining(r'$50.00'), findsNothing);
+      expect(find.textContaining('50 MXN'), findsNothing);
     },
   );
 

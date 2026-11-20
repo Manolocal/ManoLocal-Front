@@ -6,6 +6,7 @@ import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/navigation_keys.dart';
+import '../../../../core/widgets/safe_action_dialog.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/status_badges.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
@@ -32,26 +33,17 @@ class _JobsScreenState extends State<JobsScreen> {
   }
 
   Future<void> _handleAccept(JobAgreementModel job) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Aceptar acuerdo de trabajo'),
-        content: Text(
+    final confirm = await SafeActionDialog.show(
+      context,
+      title: 'Aceptar acuerdo de trabajo',
+      message:
           '¿Deseas aceptar "${job.title ?? 'este acuerdo'}"? El trabajo pasará a estado en curso.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Volver'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Aceptar acuerdo'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Aceptar acuerdo',
+      cancelLabel: 'Volver',
+      icon: Icons.handshake_outlined,
+      isDestructive: false,
     );
-    if (confirm != true || !mounted) return;
+    if (!confirm || !mounted) return;
     final outcome = await context.read<JobsProvider>().confirmJob(job.id);
     if (!mounted) return;
     if (outcome.isSuccess) {
@@ -62,26 +54,17 @@ class _JobsScreenState extends State<JobsScreen> {
   }
 
   Future<void> _handleComplete(JobAgreementModel job) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Confirmar finalización'),
-        content: Text(
+    final confirm = await SafeActionDialog.show(
+      context,
+      title: 'Confirmar finalización',
+      message:
           '¿Deseas marcar "${job.title ?? 'este trabajo'}" como completado? Esto cerrará el acuerdo de trabajo.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Completar trabajo'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Completar trabajo',
+      cancelLabel: 'Cancelar',
+      icon: Icons.check_circle_outline_rounded,
+      isDestructive: false,
     );
-    if (confirm != true || !mounted) return;
+    if (!confirm || !mounted) return;
     final outcome = await context.read<JobsProvider>().completeJob(job.id);
     if (!mounted) return;
     if (outcome.isSuccess) {
@@ -98,47 +81,26 @@ class _JobsScreenState extends State<JobsScreen> {
     bool isSpecialist = false,
   }) async {
     final reasonCtrl = TextEditingController();
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isRejection ? 'Rechazar propuesta' : 'Cancelar acuerdo'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              isSpecialist
-                  ? 'Se devolverán automáticamente ${AppFormatters.currency(job.feeAmount)} a tu saldo disponible.'
-                  : (isRejection
-                      ? '¿Deseas rechazar esta propuesta de trabajo?'
-                      : '¿Seguro que deseas cancelar este acuerdo de trabajo?'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Motivo (opcional)',
-              ),
-            ),
-          ],
+    final confirm = await SafeActionDialog.show(
+      context,
+      title: isRejection ? 'Rechazar propuesta' : 'Cancelar acuerdo',
+      message: isSpecialist
+          ? 'Se devolverán automáticamente ${AppFormatters.currency(job.feeAmount)} a tu saldo disponible.'
+          : (isRejection
+              ? '¿Deseas rechazar esta propuesta de trabajo?'
+              : '¿Seguro que deseas cancelar este acuerdo de trabajo?'),
+      confirmLabel: isRejection ? 'Sí, rechazar' : 'Sí, cancelar',
+      cancelLabel: 'Volver',
+      icon: Icons.cancel_outlined,
+      isDestructive: true,
+      extraContent: TextField(
+        controller: reasonCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Motivo (opcional)',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Volver'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: AppColors.white,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(isRejection ? 'Sí, rechazar' : 'Sí, cancelar'),
-          ),
-        ],
       ),
     );
-    if (confirm != true || !mounted) return;
+    if (!confirm || !mounted) return;
     final entered = reasonCtrl.text.trim();
     final reason = entered.isNotEmpty
         ? entered

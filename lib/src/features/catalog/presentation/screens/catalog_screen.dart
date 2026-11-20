@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/helpers/camera_helper.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/navigation_keys.dart';
+import '../../../../core/widgets/custom_image_cache.dart';
+import '../../../../core/widgets/safe_action_dialog.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../domain/models/catalog_models.dart';
 import '../providers/catalog_provider.dart';
@@ -18,7 +20,7 @@ class CatalogScreen extends StatefulWidget {
 }
 
 class _CatalogScreenState extends State<CatalogScreen> {
-  final _picker = ImagePicker();
+  final _cameraHelper = CameraHelper();
 
   @override
   void initState() {
@@ -41,7 +43,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
     final formKey = GlobalKey<FormState>();
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();
-    XFile? pickedFile;
+    CapturedImageFile? pickedFile;
     Uint8List? previewBytes;
 
     final payload = await showModalBottomSheet<Map<String, dynamic>>(
@@ -51,16 +53,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
         builder: (ctx, setModalState) {
           Future<void> pickFrom(ImageSource source) async {
             try {
-              final img = await _picker.pickImage(
-                source: source,
-                maxWidth: 1600,
-                imageQuality: 85,
-              );
-              if (img == null) return;
-              final bytes = await img.readAsBytes();
+              final captured =
+                  await _cameraHelper.captureCatalogPhoto(source);
+              if (captured == null) return;
               setModalState(() {
-                pickedFile = img;
-                previewBytes = bytes;
+                pickedFile = captured;
+                previewBytes = captured.bytes;
               });
             } catch (e) {
               GlobalNotifier.showErrorSnackBar(
@@ -239,31 +237,18 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Future<void> _confirmDelete(CatalogImageModel image) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar fotografía'),
-        content: Text(
+    final confirm = await SafeActionDialog.show(
+      context,
+      title: 'Eliminar fotografía',
+      message:
           '¿Deseas eliminar "${image.title}" de tu catálogo? Se liberará un espacio en tu cuota inmediatamente.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: AppColors.white,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Cancelar',
+      icon: Icons.delete_outline_rounded,
+      isDestructive: true,
     );
 
-    if (confirm != true || !mounted) return;
+    if (!confirm || !mounted) return;
     final ok = await context.read<CatalogProvider>().deleteImage(image.id);
     if (ok && mounted) {
       GlobalNotifier.showSuccessSnackBar('Fotografía eliminada del catálogo.');
@@ -283,10 +268,14 @@ class _CatalogScreenState extends State<CatalogScreen> {
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 420),
               child: InteractiveViewer(
-                child: Image.network(
-                  image.imageUrl,
+                child: CustomImageCache(
+                  imageUrl: image.imageUrl,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const SizedBox(
+                  placeholder: const SizedBox(
+                    height: 220,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  errorWidget: const SizedBox(
                     height: 220,
                     child: Center(
                       child: Icon(Icons.broken_image_outlined, size: 48),
@@ -495,17 +484,10 @@ class _CatalogScreenState extends State<CatalogScreen> {
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
-                                        Image.network(
-                                          item.imageUrl,
+                                        CustomImageCache(
+                                          imageUrl: item.imageUrl,
                                           fit: BoxFit.cover,
-                                          errorBuilder: (_, _, _) => Container(
-                                            color: AppColors.silverLight,
-                                            child: const Icon(
-                                              Icons
-                                                  .image_not_supported_outlined,
-                                              color: AppColors.grayMuted,
-                                            ),
-                                          ),
+                                          memCacheWidth: 600,
                                         ),
                                         Positioned(
                                           top: 8,

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/enums/backend_enums.dart';
+import '../../../../core/helpers/camera_helper.dart';
+import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/navigation_keys.dart';
 import '../../../../core/widgets/state_views.dart';
@@ -18,27 +20,21 @@ class KycScreen extends StatefulWidget {
 }
 
 class _KycScreenState extends State<KycScreen> {
-  final _picker = ImagePicker();
+  final _cameraHelper = CameraHelper();
 
   Future<void> _pickDocument({
     required bool isIne,
     required ImageSource source,
   }) async {
     try {
-      final picked = await _picker.pickImage(
-        source: source,
-        preferredCameraDevice:
-            isIne ? CameraDevice.rear : CameraDevice.front,
-        maxWidth: 1600,
-        imageQuality: 85,
-      );
-      if (picked == null || !mounted) return;
-      final bytes = await picked.readAsBytes();
-      if (!mounted) return;
+      final captured = isIne
+          ? await _cameraHelper.captureIne(source)
+          : await _cameraHelper.captureSelfie(source);
+      if (captured == null || !mounted) return;
       final selected = SelectedKycFile(
-        path: picked.path,
-        name: picked.name,
-        bytes: bytes,
+        path: captured.path,
+        name: captured.name,
+        bytes: captured.bytes,
       );
       final kyc = context.read<KycProvider>();
       if (isIne) {
@@ -58,9 +54,13 @@ class _KycScreenState extends State<KycScreen> {
     final result = await kyc.submitDocuments();
     if (result != null && mounted) {
       await context.read<ProfileProvider>().loadProfile();
+      if (!mounted) return;
       GlobalNotifier.showSuccessSnackBar(
         'Documentos KYC enviados correctamente. Estado: ${result.userStatus?.label ?? 'Actualizado'}.',
       );
+      if (result.userStatus == UserStatus.activo) {
+        context.go(AppRoutes.dashboard);
+      }
     } else if (mounted && kyc.errorMessage != null) {
       GlobalNotifier.showErrorSnackBar(kyc.errorMessage!);
     }

@@ -7,6 +7,7 @@ import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/navigation_keys.dart';
+import '../../../../core/widgets/skeleton_loader_widget.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/status_badges.dart';
 import '../../../chat/presentation/providers/chat_provider.dart';
@@ -300,10 +301,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     const SizedBox(height: 16),
                   ],
                   if (search.isLoading)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 48),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
+                    const SkeletonLoaderWidget.specialistList(itemCount: 3)
                   else if (search.errorMessage != null)
                     ErrorStateView(
                       message: search.errorMessage!,
