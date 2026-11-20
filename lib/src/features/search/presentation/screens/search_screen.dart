@@ -8,6 +8,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/navigation_keys.dart';
 import '../../../../core/widgets/skeleton_loader_widget.dart';
+import '../../../../core/widgets/star_rating_display.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/status_badges.dart';
 import '../../../chat/presentation/providers/chat_provider.dart';
@@ -432,6 +433,13 @@ class _SpecialistCard extends StatelessWidget {
                         style: theme.textTheme.titleMedium,
                       ),
                       const SizedBox(height: 4),
+                      StarRatingDisplay(
+                        rating: specialist.profile?.ratingAverage ?? 0.0,
+                        reviewCount: specialist.profile?.ratingCount ?? 0,
+                        compact: true,
+                        starSize: 16,
+                      ),
+                      const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,
                         runSpacing: 6,

@@ -8,12 +8,16 @@ class SpecialistProfilePreviewModel {
   final String? phone;
   final String? address;
   final String? postalCode;
+  final double ratingAverage;
+  final int ratingCount;
 
   const SpecialistProfilePreviewModel({
     this.fullName,
     this.phone,
     this.address,
     this.postalCode,
+    this.ratingAverage = 0.0,
+    this.ratingCount = 0,
   });
 
   factory SpecialistProfilePreviewModel.fromJson(Map<String, dynamic> json) {
@@ -22,6 +26,12 @@ class SpecialistProfilePreviewModel {
       phone: json['phone']?.toString(),
       address: json['address']?.toString(),
       postalCode: json['postalCode']?.toString(),
+      ratingAverage: double.tryParse(
+            json['ratingAverage']?.toString() ?? '',
+          ) ??
+          (json['ratingAverage'] as num?)?.toDouble() ??
+          0.0,
+      ratingCount: (json['ratingCount'] as num?)?.toInt() ?? 0,
     );
   }
 }

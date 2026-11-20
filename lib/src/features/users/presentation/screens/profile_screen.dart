@@ -17,6 +17,7 @@ import '../../../catalog/presentation/providers/catalog_provider.dart';
 import '../../../chat/presentation/providers/chat_provider.dart';
 import '../../../jobs/presentation/providers/jobs_provider.dart';
 import '../../../kyc/presentation/providers/kyc_provider.dart';
+import '../../../reviews/presentation/providers/reviews_provider.dart';
 import '../../../search/presentation/providers/search_provider.dart';
 import '../../../wallet/presentation/providers/wallet_provider.dart';
 import '../../domain/models/user_profile_models.dart';
@@ -548,6 +549,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     context.read<SearchProvider>().clear();
     context.read<KycProvider>().clear();
     context.read<AiProvider>().clear();
+    context.read<ReviewsProvider>().clear();
     context.go(AppRoutes.login);
   }
 

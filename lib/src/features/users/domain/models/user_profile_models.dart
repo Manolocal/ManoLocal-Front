@@ -10,6 +10,8 @@ class ProfileModel {
   final String? postalCode;
   final String? ineUrl;
   final String? selfieUrl;
+  final double ratingAverage;
+  final int ratingCount;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -22,6 +24,8 @@ class ProfileModel {
     this.postalCode,
     this.ineUrl,
     this.selfieUrl,
+    this.ratingAverage = 0.0,
+    this.ratingCount = 0,
     this.createdAt,
     this.updatedAt,
   });
@@ -36,6 +40,12 @@ class ProfileModel {
       postalCode: json['postalCode']?.toString(),
       ineUrl: json['ineUrl']?.toString(),
       selfieUrl: json['selfieUrl']?.toString(),
+      ratingAverage: double.tryParse(
+            json['ratingAverage']?.toString() ?? '',
+          ) ??
+          (json['ratingAverage'] as num?)?.toDouble() ??
+          0.0,
+      ratingCount: (json['ratingCount'] as num?)?.toInt() ?? 0,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())
           : null,

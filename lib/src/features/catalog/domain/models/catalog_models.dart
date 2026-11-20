@@ -124,16 +124,37 @@ class MyCatalogModel {
 class SpecialistCatalogPreviewModel {
   final String id;
   final String? name;
+  final String? fullName;
+  final double ratingAverage;
+  final int ratingCount;
 
   const SpecialistCatalogPreviewModel({
     required this.id,
     this.name,
+    this.fullName,
+    this.ratingAverage = 0.0,
+    this.ratingCount = 0,
   });
+
+  String get displayName {
+    final full = fullName?.trim();
+    if (full != null && full.isNotEmpty) return full;
+    final raw = name?.trim();
+    if (raw != null && raw.isNotEmpty) return raw;
+    return 'Especialista';
+  }
 
   factory SpecialistCatalogPreviewModel.fromJson(Map<String, dynamic> json) {
     return SpecialistCatalogPreviewModel(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString(),
+      fullName: json['fullName']?.toString(),
+      ratingAverage: double.tryParse(
+            json['ratingAverage']?.toString() ?? '',
+          ) ??
+          (json['ratingAverage'] as num?)?.toDouble() ??
+          0.0,
+      ratingCount: (json['ratingCount'] as num?)?.toInt() ?? 0,
     );
   }
 }

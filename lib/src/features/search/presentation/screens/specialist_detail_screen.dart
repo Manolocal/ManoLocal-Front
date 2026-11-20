@@ -6,10 +6,13 @@ import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/custom_image_cache.dart';
+import '../../../../core/widgets/star_rating_display.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/status_badges.dart';
 import '../../../catalog/domain/models/catalog_models.dart';
 import '../../../chat/presentation/providers/chat_provider.dart';
+import '../../../reviews/domain/models/review_models.dart';
+import '../../../reviews/presentation/providers/reviews_provider.dart';
 import '../../domain/models/search_models.dart';
 import '../providers/search_provider.dart';
 
@@ -39,6 +42,9 @@ class _SpecialistDetailScreenState extends State<SpecialistDetailScreen> {
       context
           .read<SearchProvider>()
           .loadSpecialistPortfolio(widget.specialistId);
+      context
+          .read<ReviewsProvider>()
+          .loadSpecialistReviews(widget.specialistId);
     });
   }
 
@@ -122,10 +128,23 @@ class _SpecialistDetailScreenState extends State<SpecialistDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final search = context.watch<SearchProvider>();
+    final reviews = context.watch<ReviewsProvider>();
     final portfolio = search.selectedPortfolio;
     final preview = widget.preview;
+    final repSummary = reviews.activeSpecialistId == widget.specialistId
+        ? reviews.specialistSummary
+        : null;
+    final effectiveRating = repSummary?.ratingAverage ??
+        portfolio?.specialist.ratingAverage ??
+        preview?.profile?.ratingAverage ??
+        0.0;
+    final effectiveRatingCount = repSummary?.ratingCount ??
+        portfolio?.specialist.ratingCount ??
+        preview?.profile?.ratingCount ??
+        0;
     final name = preview?.displayName ??
-        portfolio?.specialist.name ??
+        repSummary?.displayName ??
+        portfolio?.specialist.displayName ??
         'Especialista ManoLocal';
 
     return Scaffold(
@@ -206,6 +225,13 @@ class _SpecialistDetailScreenState extends State<SpecialistDetailScreen> {
                                 ),
                               ),
                               const SizedBox(height: 6),
+                              StarRatingDisplay(
+                                rating: effectiveRating,
+                                reviewCount: effectiveRatingCount,
+                                starSize: 18,
+                                textColor: AppColors.silver,
+                              ),
+                              const SizedBox(height: 8),
                               Wrap(
                                 spacing: 8,
                                 runSpacing: 6,
@@ -377,11 +403,207 @@ class _SpecialistDetailScreenState extends State<SpecialistDetailScreen> {
                         );
                       },
                     ),
+                  const SizedBox(height: 24),
+                  SectionHeader(
+                    title: 'Calificaciones y reseñas',
+                    subtitle: effectiveRatingCount > 0
+                        ? '$effectiveRatingCount ${effectiveRatingCount == 1 ? 'reseña verificada' : 'reseñas verificadas'}'
+                        : 'Opiniones públicas de empleadores',
+                  ),
+                  const SizedBox(height: 10),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              color: AppColors.gray,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  effectiveRatingCount > 0
+                                      ? effectiveRating.toStringAsFixed(1)
+                                      : '—',
+                                  style: const TextStyle(
+                                    color: AppColors.yellow,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const Text(
+                                  '/ 5.0',
+                                  style: TextStyle(
+                                    color: AppColors.silver,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                StarRatingDisplay(
+                                  rating: effectiveRating,
+                                  reviewCount: effectiveRatingCount,
+                                  starSize: 20,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  effectiveRatingCount > 0
+                                      ? 'Reputación calculada con trabajos completados en ManoLocal.'
+                                      : 'Aún no tiene calificaciones registradas.',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (reviews.isLoading &&
+                      reviews.activeSpecialistId == widget.specialistId)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 28),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (reviews.errorMessage != null &&
+                      reviews.activeSpecialistId == widget.specialistId)
+                    ErrorStateView(
+                      message: reviews.errorMessage!,
+                      onRetry: () => reviews
+                          .loadSpecialistReviews(widget.specialistId),
+                    )
+                  else if (reviews.reviews.isEmpty ||
+                      reviews.activeSpecialistId != widget.specialistId)
+                    const EmptyStateView(
+                      icon: Icons.reviews_outlined,
+                      title: 'Aún no hay reseñas publicadas',
+                      description:
+                          'Las reseñas aparecerán aquí cuando los empleadores finalicen y califiquen sus servicios.',
+                    )
+                  else ...[
+                    ...reviews.reviews.map(
+                      (rev) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _PublicReviewCard(review: rev),
+                      ),
+                    ),
+                    if (reviews.hasMore) ...[
+                      const SizedBox(height: 6),
+                      Center(
+                        child: OutlinedButton.icon(
+                          onPressed: reviews.isLoadingMore
+                              ? null
+                              : () => reviews.loadMoreSpecialistReviews(),
+                          icon: reviews.isLoadingMore
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.expand_more_rounded),
+                          label: Text(
+                            reviews.isLoadingMore
+                                ? 'Cargando más...'
+                                : 'Cargar más reseñas',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PublicReviewCard extends StatelessWidget {
+  final ReviewModel review;
+
+  const _PublicReviewCard({required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                UserAvatar(
+                  initials: AppFormatters.initials(review.employer.name),
+                  radius: 18,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        review.employer.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (review.jobTitle != null &&
+                          review.jobTitle!.trim().isNotEmpty)
+                        Text(
+                          review.jobTitle!.trim(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                    ],
+                  ),
+                ),
+                if (review.createdAt != null)
+                  Text(
+                    AppFormatters.chatDayHeader(review.createdAt!),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            StarRatingDisplay(
+              rating: review.rating.toDouble(),
+              reviewCount: 0,
+              compact: true,
+              showEmptyLabel: false,
+              starSize: 17,
+            ),
+            if (review.comment != null && review.comment!.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                review.comment!.trim(),
+                style: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

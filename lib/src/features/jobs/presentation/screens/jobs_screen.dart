@@ -10,6 +10,7 @@ import '../../../../core/widgets/safe_action_dialog.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/status_badges.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../reviews/presentation/widgets/create_review_modal.dart';
 import '../../../wallet/presentation/providers/wallet_provider.dart';
 import '../../domain/models/job_models.dart';
 import '../providers/jobs_provider.dart';
@@ -70,9 +71,18 @@ class _JobsScreenState extends State<JobsScreen> {
     if (outcome.isSuccess) {
       context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
       GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
+      await _openReviewModal(outcome.result!.job);
     } else if (outcome.errorMessage != null) {
       GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
     }
+  }
+
+  Future<void> _openReviewModal(JobAgreementModel job) async {
+    final result = await CreateReviewModal.show(context, job: job);
+    if (!mounted || result == null) return;
+    GlobalNotifier.showSuccessSnackBar(
+      '¡Reseña publicada! Promedio actualizado: ${result.specialistReputation.ratingAverage.toStringAsFixed(1)}★',
+    );
   }
 
   Future<void> _handleCancel(
@@ -239,6 +249,7 @@ class _JobsScreenState extends State<JobsScreen> {
                                           job,
                                           isSpecialist: isSpecialist,
                                         ),
+                                        onReview: () => _openReviewModal(job),
                                       ),
                                     ),
                                   ),
@@ -284,6 +295,7 @@ class _JobAgreementCard extends StatelessWidget {
   final VoidCallback onReject;
   final VoidCallback onComplete;
   final VoidCallback onCancel;
+  final VoidCallback? onReview;
 
   const _JobAgreementCard({
     required this.job,
@@ -295,6 +307,7 @@ class _JobAgreementCard extends StatelessWidget {
     required this.onReject,
     required this.onComplete,
     required this.onCancel,
+    this.onReview,
   });
 
   @override
@@ -450,6 +463,23 @@ class _JobAgreementCard extends StatelessWidget {
                     icon: const Icon(Icons.cancel_outlined, size: 17),
                     label: const Text('Cancelar'),
                   ),
+                if (job.status == JobStatus.completed && isEmployer) ...[
+                  if (!job.hasReview)
+                    FilledButton.icon(
+                      onPressed: isMutating ? null : onReview,
+                      icon: const Icon(Icons.star_rounded, size: 17),
+                      label: const Text('Calificar especialista'),
+                    )
+                  else
+                    AppPillBadge(
+                      label: job.reviewRating != null
+                          ? 'Calificado (${job.reviewRating}★)'
+                          : 'Calificado',
+                      icon: Icons.star_rounded,
+                      backgroundColor: AppColors.yellowSoft,
+                      foregroundColor: AppColors.gray,
+                    ),
+                ],
               ],
             ),
           ],

@@ -1,11 +1,11 @@
 {
-    "name": "manolocal_front",
-    "short_name": "manolocal_front",
+    "name": "ManoLocal",
+    "short_name": "ManoLocal",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#2B2D31",
+    "theme_color": "#2B2D31",
+    "description": "El oficio que necesitas, a la vuelta de tu calle.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

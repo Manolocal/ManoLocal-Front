@@ -12,6 +12,7 @@ import '../../../catalog/presentation/providers/catalog_provider.dart';
 import '../../../chat/presentation/providers/chat_provider.dart';
 import '../../../jobs/presentation/providers/jobs_provider.dart';
 import '../../../kyc/presentation/providers/kyc_provider.dart';
+import '../../../reviews/presentation/providers/reviews_provider.dart';
 import '../../../search/presentation/providers/search_provider.dart';
 import '../../../users/presentation/providers/profile_provider.dart';
 import '../../../wallet/presentation/providers/wallet_provider.dart';
@@ -79,6 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
       context.read<SearchProvider>().clear();
       context.read<KycProvider>().clear();
       context.read<AiProvider>().clear();
+      context.read<ReviewsProvider>().clear();
       context.go(AppRoutes.dashboard);
     }
   }
@@ -108,7 +110,7 @@ class _LoginScreenState extends State<LoginScreen> {
             title: awaiting2fa ? 'Verificación en 2 pasos' : 'Bienvenido de vuelta',
             subtitle: awaiting2fa
                 ? 'Protegemos tu cuenta con un PIN único enviado a tu correo'
-                : 'El oficio que necesitas, a la vuelta de tu calle',
+                : BrandLogo.appSlogan,
           ),
           Expanded(
             child: SingleChildScrollView(
