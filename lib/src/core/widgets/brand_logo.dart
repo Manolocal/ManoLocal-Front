@@ -5,7 +5,7 @@ import '../theme/app_colors.dart';
 class BrandLogo extends StatelessWidget {
   static const String appName = 'ManoLocal';
   static const String appSlogan =
-      'El oficio que necesitas, a la vuelta de tu calle.';
+      'El oficio que necesitas a la vuelta de la esquina.';
   static const String logoAssetPath = 'assets/images/manolocal_logo.png';
 
   final double size;
