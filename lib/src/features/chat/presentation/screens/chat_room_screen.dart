@@ -12,12 +12,15 @@ import '../../../../core/widgets/status_badges.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../jobs/domain/models/job_models.dart';
 import '../../../jobs/presentation/providers/jobs_provider.dart';
+import '../../../users/presentation/providers/profile_provider.dart';
 import '../../../wallet/presentation/providers/wallet_provider.dart';
 import '../../data/datasources/chat_socket_service.dart';
 import '../../domain/models/chat_models.dart';
 import '../providers/chat_provider.dart';
 
 /// Sala privada de chat en tiempo real con Barra de Acuerdos de Trabajo ($50 MXN).
+/// Flujo: Especialista envía propuesta aceptando comisión -> Empleador acepta o rechaza ->
+/// Empleador marca completado o cualquiera de los dos puede cancelar con rollback.
 class ChatRoomScreen extends StatefulWidget {
   final String roomId;
   final ChatRoomModel? initialRoom;
@@ -35,20 +38,22 @@ class ChatRoomScreen extends StatefulWidget {
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
+  late final ChatProvider _chatProvider;
   int _lastMessageCount = 0;
 
   @override
   void initState() {
     super.initState();
+    _chatProvider = context.read<ChatProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<ChatProvider>().enterRoom(widget.roomId);
+      _chatProvider.enterRoom(widget.roomId);
     });
   }
 
   @override
   void dispose() {
-    context.read<ChatProvider>().leaveRoom(widget.roomId);
+    _chatProvider.leaveRoom(widget.roomId);
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -84,99 +89,142 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  /// Solo el Especialista envía la propuesta aceptando de paso la comisión de $50 MXN.
   Future<void> _openCreateJobSheet() async {
     final formKey = GlobalKey<FormState>();
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     final priceCtrl = TextEditingController();
+    var acceptedCommission = false;
 
     final submitted = await showModalBottomSheet<CreateJobRequestModel>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          20,
-          20,
-          MediaQuery.viewInsetsOf(ctx).bottom + 24,
-        ),
-        child: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Formalizar acuerdo de trabajo',
-                  style: Theme.of(ctx).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Define el alcance y precio acordado. Al confirmar el especialista se congelará la cuota fija de \$50.00 MXN.',
-                  style: Theme.of(ctx).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 18),
-                TextFormField(
-                  controller: titleCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Título del servicio',
-                    hintText: 'Ej. Instalación de calentador solar',
-                    prefixIcon: Icon(Icons.work_outline_rounded),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.viewInsetsOf(ctx).bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Enviar acuerdo de trabajo',
+                    style: Theme.of(ctx).textTheme.titleLarge,
                   ),
-                  validator: (v) {
-                    final s = v?.trim() ?? '';
-                    if (s.length < 3) {
-                      return 'Escribe al menos 3 caracteres';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: descCtrl,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Alcance y detalles (opcional)',
-                    hintText: 'Materiales incluidos, fecha acordada, garantía...',
-                    alignLabelWithHint: true,
+                  const SizedBox(height: 6),
+                  Text(
+                    'Envía los detalles del servicio al empleador. Al enviarlo se congelará la comisión de \$50.00 MXN de tu saldo disponible.',
+                    style: Theme.of(ctx).textTheme.bodySmall,
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: priceCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Precio acordado MXN (opcional)',
-                    hintText: '1200.00',
-                    prefixIcon: Icon(Icons.attach_money_rounded),
+                  const SizedBox(height: 18),
+                  TextFormField(
+                    controller: titleCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Título del servicio *',
+                      hintText: 'Ej. Instalación de calentador solar',
+                      prefixIcon: Icon(Icons.work_outline_rounded),
+                    ),
+                    validator: (v) {
+                      final s = v?.trim() ?? '';
+                      if (s.length < 3) {
+                        return 'Escribe al menos 3 caracteres';
+                      }
+                      return null;
+                    },
                   ),
-                  validator: (v) =>
-                      AppValidators.positiveAmount(v, required: false),
-                ),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  onPressed: () {
-                    if (!formKey.currentState!.validate()) return;
-                    final rawPrice = priceCtrl.text.trim().replaceAll(',', '');
-                    Navigator.of(ctx).pop(
-                      CreateJobRequestModel(
-                        roomId: widget.roomId,
-                        title: titleCtrl.text.trim(),
-                        description: descCtrl.text.trim().isEmpty
-                            ? null
-                            : descCtrl.text.trim(),
-                        agreedPrice: rawPrice.isEmpty
-                            ? null
-                            : double.tryParse(rawPrice),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: descCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Alcance y detalles (opcional)',
+                      hintText:
+                          'Materiales incluidos, fecha acordada, garantía...',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: priceCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Precio acordado MXN (opcional)',
+                      hintText: '1200.00',
+                      prefixIcon: Icon(Icons.attach_money_rounded),
+                    ),
+                    validator: (v) =>
+                        AppValidators.positiveAmount(v, required: false),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.yellowSoft,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.yellowDark.withValues(alpha: 0.45),
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.handshake_rounded),
-                  label: const Text('Enviar propuesta de trabajo'),
-                ),
-              ],
+                    ),
+                    child: CheckboxListTile(
+                      value: acceptedCommission,
+                      onChanged: (v) =>
+                          setModalState(() => acceptedCommission = v ?? false),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: AppColors.gray,
+                      checkColor: AppColors.yellow,
+                      title: const Text(
+                        'Acepto la comisión de \$50.00 MXN',
+                        style: TextStyle(
+                          color: AppColors.gray,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Se congelará de mi saldo disponible ahora y se devolverá automáticamente si el empleador rechaza o si se cancela.',
+                        style: TextStyle(
+                          color: AppColors.gray,
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: !acceptedCommission
+                        ? null
+                        : () {
+                            if (!formKey.currentState!.validate()) return;
+                            final rawPrice =
+                                priceCtrl.text.trim().replaceAll(',', '');
+                            Navigator.of(ctx).pop(
+                              CreateJobRequestModel(
+                                roomId: widget.roomId,
+                                title: titleCtrl.text.trim(),
+                                description: descCtrl.text.trim().isEmpty
+                                    ? null
+                                    : descCtrl.text.trim(),
+                                agreedPrice: rawPrice.isEmpty
+                                    ? null
+                                    : double.tryParse(rawPrice),
+                                acceptCommission: true,
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.handshake_rounded),
+                    label: const Text('Enviar acuerdo y congelar \$50 MXN'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -185,20 +233,28 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     if (submitted == null || !mounted) return;
     final outcome = await context.read<JobsProvider>().createJob(submitted);
+    if (!mounted) return;
+
     if (outcome.isSuccess) {
+      context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
       GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
+    } else if (outcome.isInsufficientBalance) {
+      _showInsufficientBalanceDialog(outcome.insufficientBalance!);
     } else if (outcome.errorMessage != null) {
       GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
     }
   }
 
-  Future<void> _confirmJob(JobAgreementModel job) async {
+  /// Solo el Empleador acepta el acuerdo propuesto por el especialista.
+  Future<void> _acceptJob(JobAgreementModel job) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirmar acuerdo de trabajo'),
+        title: const Text('Aceptar acuerdo de trabajo'),
         content: Text(
-          'Al confirmar "${job.title ?? 'este servicio'}", se congelarán ${AppFormatters.currency(job.feeAmount)} de tu saldo disponible hasta que el trabajo se complete o se cancele.',
+          '¿Deseas aceptar la propuesta "${job.title ?? 'Acuerdo de servicio'}"'
+          '${job.agreedPrice != null ? ' por ${AppFormatters.currency(job.agreedPrice!)}' : ''}? '
+          'Al aceptar, el servicio pasará a estado en curso y cualquiera de las dos partes podrá cancelarlo antes de completarse.',
         ),
         actions: [
           TextButton(
@@ -207,7 +263,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Confirmar y Congelar'),
+            child: const Text('Aceptar acuerdo'),
           ),
         ],
       ),
@@ -218,10 +274,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (!mounted) return;
 
     if (outcome.isSuccess) {
-      context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
       GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
-    } else if (outcome.isInsufficientBalance) {
-      _showInsufficientBalanceDialog(outcome.insufficientBalance!);
     } else if (outcome.errorMessage != null) {
       GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
     }
@@ -258,7 +311,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     ),
                     const SizedBox(height: 4),
                     _BalanceLine(
-                      'Cuota requerida',
+                      'Comisión requerida',
                       AppFormatters.currency(error.requiredAmount!),
                     ),
                   ],
@@ -291,7 +344,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Marcar trabajo como completado'),
         content: Text(
-          '¿Confirmas que el especialista completó "${job.title ?? 'el servicio'}" satisfactoriamente? Esto finalizará el acuerdo y descontará definitivamente la cuota congelada de ${AppFormatters.currency(job.feeAmount)}.',
+          '¿Confirmas que el especialista completó "${job.title ?? 'el servicio'}" satisfactoriamente? Esto finalizará el acuerdo de trabajo.',
         ),
         actions: [
           TextButton(
@@ -318,30 +371,44 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  Future<void> _cancelJob(JobAgreementModel job) async {
+  /// Permite rechazar (Empleador en PENDING) o cancelar (ambos en PENDING/CONFIRMED).
+  Future<void> _cancelOrRejectJob(
+    JobAgreementModel job, {
+    bool isRejection = false,
+    bool isSpecialist = false,
+  }) async {
     final reasonCtrl = TextEditingController();
-    final isConfirmed = job.status == JobStatus.confirmed;
+
+    final descriptionText = isSpecialist
+        ? 'Al cancelar este acuerdo, los ${AppFormatters.currency(job.feeAmount)} congelados se devolverán automáticamente a tu saldo disponible.'
+        : (isRejection
+            ? '¿Deseas rechazar esta propuesta de trabajo? Podrás seguir acordando los detalles en el chat.'
+            : '¿Seguro que deseas cancelar este acuerdo de trabajo?');
 
     final confirmCancel = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Cancelar acuerdo de trabajo'),
+        title: Text(
+          isRejection
+              ? 'Rechazar propuesta de trabajo'
+              : 'Cancelar acuerdo de trabajo',
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              isConfirmed
-                  ? 'Al cancelar este trabajo confirmado, se ejecutará un rollback automático devolviendo ${AppFormatters.currency(job.feeAmount)} al saldo disponible del especialista.'
-                  : 'Se cancelará esta propuesta de trabajo sin cargo alguno.',
-            ),
+            Text(descriptionText),
             const SizedBox(height: 12),
             TextField(
               controller: reasonCtrl,
               maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Motivo de cancelación (opcional)',
-                hintText: 'Ej. Reprogramación por mutuo acuerdo',
+              decoration: InputDecoration(
+                labelText: isRejection
+                    ? 'Motivo del rechazo (opcional)'
+                    : 'Motivo de cancelación (opcional)',
+                hintText: isRejection
+                    ? 'Ej. Ajustar presupuesto o fecha'
+                    : 'Ej. Reprogramación por mutuo acuerdo',
               ),
             ),
           ],
@@ -349,7 +416,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Mantener acuerdo'),
+            child: const Text('Volver'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -357,16 +424,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               foregroundColor: AppColors.white,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Cancelar acuerdo'),
+            child: Text(isRejection ? 'Rechazar propuesta' : 'Cancelar acuerdo'),
           ),
         ],
       ),
     );
 
     if (confirmCancel != true || !mounted) return;
+    final enteredReason = reasonCtrl.text.trim();
+    final reason = enteredReason.isNotEmpty
+        ? enteredReason
+        : (isRejection ? 'Propuesta rechazada por el empleador' : null);
+
     final outcome = await context.read<JobsProvider>().cancelJob(
           job.id,
-          reason: reasonCtrl.text.trim(),
+          reason: reason,
         );
     if (!mounted) return;
 
@@ -434,10 +506,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final profile = context.watch<ProfileProvider>();
     final chat = context.watch<ChatProvider>();
     final jobs = context.watch<JobsProvider>();
 
-    final currentUserId = auth.user?.id ?? '';
+    final currentUserId =
+        (auth.user?.id.isNotEmpty == true ? auth.user!.id : null) ??
+            profile.userMe?.id ??
+            '';
+    final myDisplayName =
+        profile.userMe?.displayName ?? auth.user?.displayName ?? 'Tú';
+
     final room = chat.findRoomById(widget.roomId) ?? widget.initialRoom;
     final counterpart = room?.counterpart ??
         (room?.employerId == currentUserId ? room?.specialist : room?.employer);
@@ -451,10 +530,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     final roomJobsData = jobs.roomJobs(widget.roomId);
     final activeJob = roomJobsData?.activeJob;
-    final isRoomSpecialist =
-        (room?.specialistId ?? activeJob?.room?.specialistId) == currentUserId;
-    final isRoomEmployer =
-        (room?.employerId ?? activeJob?.room?.employerId) == currentUserId;
+    final roomSpecialistId = room?.specialistId ?? activeJob?.room?.specialistId;
+    final roomEmployerId = room?.employerId ?? activeJob?.room?.employerId;
+    final userRole = profile.userMe?.role ?? auth.user?.role;
+    final isRoomSpecialist = roomSpecialistId != null &&
+            roomSpecialistId.isNotEmpty
+        ? (roomSpecialistId == currentUserId && currentUserId.isNotEmpty)
+        : userRole == UserRole.especialista;
+    final isRoomEmployer = roomEmployerId != null && roomEmployerId.isNotEmpty
+        ? (roomEmployerId == currentUserId && currentUserId.isNotEmpty)
+        : userRole == UserRole.empleador;
 
     return Scaffold(
       appBar: AppBar(
@@ -506,11 +591,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             isSpecialist: isRoomSpecialist,
             isEmployer: isRoomEmployer,
             onCreateJob: _openCreateJobSheet,
-            onConfirmJob:
-                activeJob != null ? () => _confirmJob(activeJob) : null,
+            onAcceptJob: activeJob != null ? () => _acceptJob(activeJob) : null,
+            onRejectJob: activeJob != null
+                ? () => _cancelOrRejectJob(
+                      activeJob,
+                      isRejection: true,
+                      isSpecialist: isRoomSpecialist,
+                    )
+                : null,
             onCompleteJob:
                 activeJob != null ? () => _completeJob(activeJob) : null,
-            onCancelJob: activeJob != null ? () => _cancelJob(activeJob) : null,
+            onCancelJob: activeJob != null
+                ? () => _cancelOrRejectJob(
+                      activeJob,
+                      isRejection: false,
+                      isSpecialist: isRoomSpecialist,
+                    )
+                : null,
           ),
           Expanded(
             child: chat.isLoadingMessages && messages.isEmpty
@@ -520,13 +617,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         icon: Icons.chat_outlined,
                         title: 'Inicia la conversación',
                         description:
-                            'Acuerden los detalles del servicio, horario y presupuesto. Cuando estén listos, formalicen el acuerdo desde la barra superior.',
+                            'Acuerden los detalles del servicio, horario y presupuesto. El especialista puede enviar el acuerdo formal desde la barra superior.',
                       )
                     : ListView.builder(
                         controller: _scrollController,
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                        itemCount:
-                            messages.length + (chat.hasOlderMessages(widget.roomId) ? 1 : 0),
+                        padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+                        itemCount: messages.length +
+                            (chat.hasOlderMessages(widget.roomId) ? 1 : 0),
                         itemBuilder: (context, index) {
                           final hasOlder = chat.hasOlderMessages(widget.roomId);
                           if (hasOlder && index == 0) {
@@ -546,8 +643,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
                           final msgIdx = hasOlder ? index - 1 : index;
                           final message = messages[msgIdx];
-                          final prev =
-                              msgIdx > 0 ? messages[msgIdx - 1] : null;
+                          final prev = msgIdx > 0 ? messages[msgIdx - 1] : null;
                           final showDateHeader = message.createdAt != null &&
                               (prev?.createdAt == null ||
                                   !_isSameDay(
@@ -555,36 +651,48 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                     message.createdAt!.toLocal(),
                                   ));
 
+                          final isMine = currentUserId.isNotEmpty &&
+                              message.senderId == currentUserId;
+                          final senderName = isMine
+                              ? myDisplayName
+                              : (message.sender?.displayName ??
+                                  counterpartName);
+
                           return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               if (showDateHeader)
-                                Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 10),
-                                  child: Container(
+                                Center(
+                                  child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 4,
+                                      vertical: 10,
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.silverLight,
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: Text(
-                                      AppFormatters.chatDayHeader(
-                                        message.createdAt!,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 4,
                                       ),
-                                      style: const TextStyle(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.grayMuted,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.silverLight,
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Text(
+                                        AppFormatters.chatDayHeader(
+                                          message.createdAt!,
+                                        ),
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.grayMuted,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               _MessageBubble(
                                 message: message,
-                                isMine: message.senderId == currentUserId,
+                                isMine: isMine,
+                                senderName: senderName,
                               ),
                             ],
                           );
@@ -611,7 +719,8 @@ class _JobAgreementActionBar extends StatelessWidget {
   final bool isSpecialist;
   final bool isEmployer;
   final VoidCallback onCreateJob;
-  final VoidCallback? onConfirmJob;
+  final VoidCallback? onAcceptJob;
+  final VoidCallback? onRejectJob;
   final VoidCallback? onCompleteJob;
   final VoidCallback? onCancelJob;
 
@@ -621,7 +730,8 @@ class _JobAgreementActionBar extends StatelessWidget {
     required this.isSpecialist,
     required this.isEmployer,
     required this.onCreateJob,
-    this.onConfirmJob,
+    this.onAcceptJob,
+    this.onRejectJob,
     this.onCompleteJob,
     this.onCancelJob,
   });
@@ -650,25 +760,30 @@ class _JobAgreementActionBar extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '¿Listos para formalizar el servicio?',
+                isSpecialist
+                    ? '¿Listos? Envía el acuerdo aceptando la comisión (\$50 MXN).'
+                    : 'El especialista enviará el acuerdo formal cuando definan el trabajo.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
               ),
             ),
-            FilledButton.icon(
-              onPressed: isMutating ? null : onCreateJob,
-              style: FilledButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                textStyle: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
+            if (isSpecialist) ...[
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: isMutating ? null : onCreateJob,
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  textStyle: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
+                icon: const Icon(Icons.add_task_rounded, size: 16),
+                label: const Text('Enviar Acuerdo'),
               ),
-              icon: const Icon(Icons.add_task_rounded, size: 16),
-              label: const Text('Acordar Trabajo'),
-            ),
+            ],
           ],
         ),
       );
@@ -698,44 +813,92 @@ class _JobAgreementActionBar extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
               JobStatusBadge(status: job.status),
             ],
           ),
+          if (job.description != null && job.description!.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              job.description!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: 4),
-          Text(
-            [
-              if (job.agreedPrice != null)
-                'Precio: ${AppFormatters.currency(job.agreedPrice!, withSuffix: false)}',
-              'Cuota plataforma: ${AppFormatters.currency(job.feeAmount, withSuffix: false)}',
-            ].join('  ·  '),
-            style: Theme.of(context).textTheme.bodySmall,
+          Builder(
+            builder: (context) {
+              final details = <String>[
+                if (job.agreedPrice != null)
+                  'Precio acordado: ${AppFormatters.currency(job.agreedPrice!, withSuffix: false)}'
+                else
+                  'Precio a convenir',
+                if (isSpecialist)
+                  'Comisión congelada: ${AppFormatters.currency(job.feeAmount, withSuffix: false)}',
+              ];
+              return Text(
+                details.join('  ·  '),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              );
+            },
           ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (job.status == JobStatus.pending && isSpecialist)
+              if (job.status == JobStatus.pending && isEmployer) ...[
                 FilledButton.icon(
-                  onPressed: isMutating ? null : onConfirmJob,
+                  onPressed: isMutating ? null : onAcceptJob,
                   style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: AppColors.white,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 8,
                     ),
                   ),
-                  icon: const Icon(Icons.lock_clock_rounded, size: 16),
-                  label: Text(
-                    'Confirmar (${AppFormatters.currency(job.feeAmount, withSuffix: false)})',
-                  ),
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                  label: const Text('Aceptar Acuerdo'),
                 ),
-              if (job.status == JobStatus.pending && !isSpecialist)
+                OutlinedButton.icon(
+                  onPressed: isMutating ? null : onRejectJob,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('Rechazar'),
+                ),
+              ],
+              if (job.status == JobStatus.pending && isSpecialist) ...[
                 const AppPillBadge(
-                  label: 'Esperando confirmación del especialista',
+                  label: 'Esperando aceptación del empleador',
                   icon: Icons.hourglass_bottom_rounded,
                   backgroundColor: AppColors.silverLight,
                   foregroundColor: AppColors.gray,
                 ),
+                OutlinedButton.icon(
+                  onPressed: isMutating ? null : onCancelJob,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('Cancelar propuesta'),
+                ),
+              ],
               if (job.status == JobStatus.confirmed && isEmployer)
                 FilledButton.icon(
                   onPressed: isMutating ? null : onCompleteJob,
@@ -750,15 +913,14 @@ class _JobAgreementActionBar extends StatelessWidget {
                   icon: const Icon(Icons.check_circle_rounded, size: 16),
                   label: const Text('Trabajo Completado'),
                 ),
-              if (job.status == JobStatus.confirmed && !isEmployer)
+              if (job.status == JobStatus.confirmed && isSpecialist)
                 const AppPillBadge(
-                  label: 'En progreso · Cuota congelada',
+                  label: 'Acuerdo aceptado · En progreso',
                   icon: Icons.engineering_rounded,
                   backgroundColor: AppColors.infoSoft,
                   foregroundColor: AppColors.info,
                 ),
-              if (job.status == JobStatus.pending ||
-                  job.status == JobStatus.confirmed)
+              if (job.status == JobStatus.confirmed)
                 OutlinedButton.icon(
                   onPressed: isMutating ? null : onCancelJob,
                   style: OutlinedButton.styleFrom(
@@ -769,11 +931,9 @@ class _JobAgreementActionBar extends StatelessWidget {
                       vertical: 8,
                     ),
                   ),
-                  icon: const Icon(Icons.close_rounded, size: 16),
+                  icon: const Icon(Icons.cancel_outlined, size: 16),
                   label: Text(
-                    job.status == JobStatus.confirmed
-                        ? 'Cancelar (Rollback)'
-                        : 'Cancelar',
+                    isSpecialist ? 'Cancelar (Devolver \$50)' : 'Cancelar',
                   ),
                 ),
             ],
@@ -787,10 +947,12 @@ class _JobAgreementActionBar extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   final ChatMessageModel message;
   final bool isMine;
+  final String senderName;
 
   const _MessageBubble({
     required this.message,
     required this.isMine,
+    required this.senderName,
   });
 
   @override
@@ -802,42 +964,53 @@ class _MessageBubble extends StatelessWidget {
     final textColor = isMine
         ? AppColors.white
         : (isDark ? AppColors.white : AppColors.gray);
+    final nameColor = isMine ? AppColors.yellow : AppColors.yellowDark;
 
-    return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.76,
+    final bubble = Container(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width * 0.74,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      decoration: BoxDecoration(
+        color: bubbleColor,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(isMine ? 16 : 4),
+          bottomRight: Radius.circular(isMine ? 4 : 16),
         ),
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: bubbleColor,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMine ? 16 : 4),
-            bottomRight: Radius.circular(isMine ? 4 : 16),
-          ),
-          border: isMine
-              ? null
-              : Border.all(
-                  color: isDark ? AppColors.grayElevated : AppColors.silver,
-                ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              message.content,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 14,
-                height: 1.35,
+        border: isMine
+            ? null
+            : Border.all(
+                color: isDark ? AppColors.grayElevated : AppColors.silver,
               ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isMine ? 'Tú · $senderName' : senderName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: nameColor,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
             ),
-            const SizedBox(height: 4),
-            Row(
+          ),
+          const SizedBox(height: 3),
+          Text(
+            message.content,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 14,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
@@ -857,8 +1030,27 @@ class _MessageBubble extends StatelessWidget {
                 ],
               ],
             ),
+          ),
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisAlignment:
+            isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isMine) ...[
+            UserAvatar(
+              initials: AppFormatters.initials(senderName),
+              radius: 14,
+            ),
+            const SizedBox(width: 8),
           ],
-        ),
+          Flexible(child: bubble),
+        ],
       ),
     );
   }

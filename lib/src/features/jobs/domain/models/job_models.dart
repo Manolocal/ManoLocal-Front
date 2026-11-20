@@ -96,12 +96,14 @@ class CreateJobRequestModel {
   final String? title;
   final String? description;
   final double? agreedPrice;
+  final bool acceptCommission;
 
   const CreateJobRequestModel({
     required this.roomId,
     this.title,
     this.description,
     this.agreedPrice,
+    this.acceptCommission = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -110,6 +112,7 @@ class CreateJobRequestModel {
         if (description != null && description!.trim().isNotEmpty)
           'description': description!.trim(),
         if (agreedPrice != null) 'agreedPrice': agreedPrice,
+        'acceptCommission': acceptCommission,
       };
 }
 

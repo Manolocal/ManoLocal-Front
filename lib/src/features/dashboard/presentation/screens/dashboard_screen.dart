@@ -267,6 +267,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               padding: const EdgeInsets.only(bottom: 10),
                               child: _CompactJobTile(
                                 job: job,
+                                isSpecialist: role == UserRole.especialista,
                                 onTap: () => context
                                     .push(AppRoutes.chatRoomPath(job.roomId)),
                               ),
@@ -866,15 +867,26 @@ class _CategoryCard extends StatelessWidget {
 
 class _CompactJobTile extends StatelessWidget {
   final JobAgreementModel job;
+  final bool isSpecialist;
   final VoidCallback onTap;
 
   const _CompactJobTile({
     required this.job,
+    this.isSpecialist = false,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final details = <String>[
+      if (job.agreedPrice != null)
+        'Precio: ${AppFormatters.currency(job.agreedPrice!, withSuffix: false)}'
+      else
+        'Precio a convenir',
+      if (isSpecialist)
+        'Comisión: ${AppFormatters.currency(job.feeAmount, withSuffix: false)}',
+    ];
+
     return Card(
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -896,13 +908,7 @@ class _CompactJobTile extends StatelessWidget {
         ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            [
-              if (job.agreedPrice != null)
-                'Precio: ${AppFormatters.currency(job.agreedPrice!, withSuffix: false)}',
-              'Cuota: ${AppFormatters.currency(job.feeAmount, withSuffix: false)}',
-            ].join('  ·  '),
-          ),
+          child: Text(details.join('  ·  ')),
         ),
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: onTap,

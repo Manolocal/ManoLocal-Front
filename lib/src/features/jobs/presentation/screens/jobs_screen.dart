@@ -31,33 +31,31 @@ class _JobsScreenState extends State<JobsScreen> {
     });
   }
 
-  Future<void> _handleConfirm(JobAgreementModel job) async {
+  Future<void> _handleAccept(JobAgreementModel job) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Aceptar acuerdo de trabajo'),
+        content: Text(
+          '¿Deseas aceptar "${job.title ?? 'este acuerdo'}"? El trabajo pasará a estado en curso.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Volver'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Aceptar acuerdo'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
     final outcome = await context.read<JobsProvider>().confirmJob(job.id);
     if (!mounted) return;
     if (outcome.isSuccess) {
-      context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
       GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
-    } else if (outcome.isInsufficientBalance) {
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Saldo insuficiente'),
-          content: Text(outcome.insufficientBalance!.message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cerrar'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                context.go(AppRoutes.wallet);
-              },
-              child: const Text('Ir a Billetera'),
-            ),
-          ],
-        ),
-      );
     } else if (outcome.errorMessage != null) {
       GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
     }
@@ -69,7 +67,7 @@ class _JobsScreenState extends State<JobsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Confirmar finalización'),
         content: Text(
-          '¿Deseas marcar "${job.title ?? 'este trabajo'}" como completado? Se cobrará la cuota congelada de ${AppFormatters.currency(job.feeAmount)}.',
+          '¿Deseas marcar "${job.title ?? 'este trabajo'}" como completado? Esto cerrará el acuerdo de trabajo.',
         ),
         actions: [
           TextButton(
@@ -94,20 +92,26 @@ class _JobsScreenState extends State<JobsScreen> {
     }
   }
 
-  Future<void> _handleCancel(JobAgreementModel job) async {
+  Future<void> _handleCancel(
+    JobAgreementModel job, {
+    bool isRejection = false,
+    bool isSpecialist = false,
+  }) async {
     final reasonCtrl = TextEditingController();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Cancelar acuerdo'),
+        title: Text(isRejection ? 'Rechazar propuesta' : 'Cancelar acuerdo'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              job.status == JobStatus.confirmed
-                  ? 'Se devolverán automáticamente ${AppFormatters.currency(job.feeAmount)} al saldo disponible del especialista.'
-                  : 'Se cancelará esta propuesta de trabajo.',
+              isSpecialist
+                  ? 'Se devolverán automáticamente ${AppFormatters.currency(job.feeAmount)} a tu saldo disponible.'
+                  : (isRejection
+                      ? '¿Deseas rechazar esta propuesta de trabajo?'
+                      : '¿Seguro que deseas cancelar este acuerdo de trabajo?'),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -129,15 +133,19 @@ class _JobsScreenState extends State<JobsScreen> {
               foregroundColor: AppColors.white,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Sí, cancelar'),
+            child: Text(isRejection ? 'Sí, rechazar' : 'Sí, cancelar'),
           ),
         ],
       ),
     );
     if (confirm != true || !mounted) return;
+    final entered = reasonCtrl.text.trim();
+    final reason = entered.isNotEmpty
+        ? entered
+        : (isRejection ? 'Propuesta rechazada por el empleador' : null);
     final outcome = await context
         .read<JobsProvider>()
-        .cancelJob(job.id, reason: reasonCtrl.text.trim());
+        .cancelJob(job.id, reason: reason);
     if (!mounted) return;
     if (outcome.isSuccess) {
       context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
@@ -258,9 +266,17 @@ class _JobsScreenState extends State<JobsScreen> {
                                         onOpenChat: () => context.push(
                                           AppRoutes.chatRoomPath(job.roomId),
                                         ),
-                                        onConfirm: () => _handleConfirm(job),
+                                        onAccept: () => _handleAccept(job),
+                                        onReject: () => _handleCancel(
+                                          job,
+                                          isRejection: true,
+                                          isSpecialist: isSpecialist,
+                                        ),
                                         onComplete: () => _handleComplete(job),
-                                        onCancel: () => _handleCancel(job),
+                                        onCancel: () => _handleCancel(
+                                          job,
+                                          isSpecialist: isSpecialist,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -302,7 +318,8 @@ class _JobAgreementCard extends StatelessWidget {
   final bool isEmployer;
   final bool isMutating;
   final VoidCallback onOpenChat;
-  final VoidCallback onConfirm;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
   final VoidCallback onComplete;
   final VoidCallback onCancel;
 
@@ -312,7 +329,8 @@ class _JobAgreementCard extends StatelessWidget {
     required this.isEmployer,
     required this.isMutating,
     required this.onOpenChat,
-    required this.onConfirm,
+    required this.onAccept,
+    required this.onReject,
     required this.onComplete,
     required this.onCancel,
   });
@@ -359,7 +377,10 @@ class _JobAgreementCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 14),
-            _JobLifecycleStepper(status: job.status),
+            _JobLifecycleStepper(
+              status: job.status,
+              isSpecialist: isSpecialist,
+            ),
             const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(12),
@@ -388,21 +409,22 @@ class _JobAgreementCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Cuota ManoLocal',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                        Text(
-                          AppFormatters.currency(job.feeAmount),
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ],
+                  if (isSpecialist)
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Comisión ManoLocal',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          Text(
+                            AppFormatters.currency(job.feeAmount),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -421,11 +443,32 @@ class _JobAgreementCard extends StatelessWidget {
                   icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
                   label: const Text('Abrir Chat'),
                 ),
-                if (job.status == JobStatus.pending && isSpecialist)
+                if (job.status == JobStatus.pending && isEmployer) ...[
                   FilledButton.icon(
-                    onPressed: isMutating ? null : onConfirm,
-                    icon: const Icon(Icons.lock_clock_rounded, size: 17),
-                    label: const Text('Confirmar Trabajo'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: AppColors.white,
+                    ),
+                    onPressed: isMutating ? null : onAccept,
+                    icon:
+                        const Icon(Icons.check_circle_outline_rounded, size: 17),
+                    label: const Text('Aceptar Acuerdo'),
+                  ),
+                  TextButton.icon(
+                    style:
+                        TextButton.styleFrom(foregroundColor: AppColors.error),
+                    onPressed: isMutating ? null : onReject,
+                    icon: const Icon(Icons.close_rounded, size: 17),
+                    label: const Text('Rechazar'),
+                  ),
+                ],
+                if (job.status == JobStatus.pending && isSpecialist)
+                  TextButton.icon(
+                    style:
+                        TextButton.styleFrom(foregroundColor: AppColors.error),
+                    onPressed: isMutating ? null : onCancel,
+                    icon: const Icon(Icons.cancel_outlined, size: 17),
+                    label: const Text('Cancelar propuesta'),
                   ),
                 if (job.status == JobStatus.confirmed && isEmployer)
                   FilledButton.icon(
@@ -437,8 +480,7 @@ class _JobAgreementCard extends StatelessWidget {
                     icon: const Icon(Icons.check_circle_rounded, size: 17),
                     label: const Text('Marcar Completado'),
                   ),
-                if (job.status == JobStatus.pending ||
-                    job.status == JobStatus.confirmed)
+                if (job.status == JobStatus.confirmed)
                   TextButton.icon(
                     style:
                         TextButton.styleFrom(foregroundColor: AppColors.error),
@@ -457,14 +499,20 @@ class _JobAgreementCard extends StatelessWidget {
 
 class _JobLifecycleStepper extends StatelessWidget {
   final JobStatus status;
+  final bool isSpecialist;
 
-  const _JobLifecycleStepper({required this.status});
+  const _JobLifecycleStepper({
+    required this.status,
+    this.isSpecialist = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (status == JobStatus.cancelled) {
-      return const AppStatusBanner(
-        message: 'Acuerdo cancelado · Si tenía cuota congelada fue devuelta.',
+      return AppStatusBanner(
+        message: isSpecialist
+            ? 'Acuerdo cancelado · Tu comisión congelada fue devuelta.'
+            : 'Acuerdo cancelado.',
         icon: Icons.replay_rounded,
         backgroundColor: AppColors.errorSoft,
         foregroundColor: AppColors.error,
