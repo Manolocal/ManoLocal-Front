@@ -98,6 +98,73 @@ class _FakeBackendAdapter implements HttpClientAdapter {
           'quota': {'active': 0, 'limit': 10, 'remaining': 10},
         },
       };
+    } else if (path.startsWith('/search/geo-info/')) {
+      body = {
+        'data': {
+          'municipio': 'Dolores Hidalgo Cuna de la Independencia Nacional',
+          'postalCodes': ['37800', '37806'],
+        },
+      };
+    } else if (path == '/chat/rooms/room-1/messages') {
+      body = {
+        'data': {
+          'data': [
+            {
+              'id': 'm-1',
+              'roomId': 'room-1',
+              'senderId': 'spec-1',
+              'content': 'Hola, te envío la propuesta del trabajo.',
+              'isRead': true,
+              'createdAt': '2026-11-20T14:00:00.000Z',
+              'sender': {
+                'id': 'spec-1',
+                'name': 'Juan Perez',
+                'email': 'juan@manolocal.com',
+                'role': 'ESPECIALISTA',
+                'profile': {'fullName': 'Juan Perez Leon'},
+              },
+            },
+            {
+              'id': 'm-2',
+              'roomId': 'room-1',
+              'senderId': 'user-1',
+              'content': 'Perfecto, la reviso ahora mismo.',
+              'isRead': false,
+              'createdAt': '2026-11-20T14:01:00.000Z',
+              'sender': {
+                'id': 'user-1',
+                'name': 'Carlos López',
+                'email': 'carlos@manolocal.com',
+                'role': 'EMPLEADOR',
+                'profile': {'fullName': 'Carlos López'},
+              },
+            },
+          ],
+          'meta': {'total': 2, 'page': 1, 'limit': 50, 'totalPages': 1},
+        },
+      };
+    } else if (path == '/jobs/room/room-1') {
+      body = {
+        'data': {
+          'roomId': 'room-1',
+          'activeJob': {
+            'id': 'job-1',
+            'roomId': 'room-1',
+            'title': 'Reparación de tubería',
+            'agreedPrice': 650.0,
+            'feeAmount': 50.0,
+            'status': 'PENDING',
+            'room': {
+              'id': 'room-1',
+              'employerId': 'user-1',
+              'specialistId': 'spec-1',
+            },
+          },
+          'jobs': [],
+        },
+      };
+    } else if (path == '/chat/rooms/room-1/read') {
+      body = {'data': {'roomId': 'room-1', 'markedCount': 1}};
     }
 
     return ResponseBody.fromString(
@@ -293,7 +360,74 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Perfil'));
         await tester.pumpAndSettle();
+
+        // Validar modal de edición de perfil con municipio SEPOMEX largo
+        await tester.tap(find.text('Editar'));
+        await tester.pumpAndSettle();
+        final cpField = find.widgetWithText(
+          TextFormField,
+          'Código Postal (5 dígitos) *',
+        );
+        await tester.enterText(cpField, '37806');
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('Dolores Hidalgo Cuna de la Independencia'),
+          findsOneWidget,
+        );
+        Navigator.of(tester.element(cpField)).pop();
+        await tester.pumpAndSettle();
       }
+    },
+  );
+
+  testWidgets(
+    'ChatRoomScreen alinea mensajes recibidos a la izquierda y enviados a la derecha con nombre, y permite al Empleador aceptar o rechazar',
+    (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.accessToken: 'jwt.emp.token',
+        StorageKeys.cachedUser: jsonEncode({
+          'id': 'user-1',
+          'email': 'carlos@manolocal.com',
+          'name': 'Carlos López',
+          'role': 'EMPLEADOR',
+          'status': 'ACTIVO',
+        }),
+      });
+
+      await initDependencies(
+        httpClientAdapter: _FakeBackendAdapter(role: 'EMPLEADOR'),
+        enableSocket: false,
+      );
+
+      sl<GoRouter>().go('/chat/room-1');
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: buildAppProviders(),
+          child: ManoLocalApp(router: sl<GoRouter>()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verifica nombres de remitente
+      expect(find.text('Juan Perez Leon'), findsOneWidget);
+      expect(find.text('Tú · Carlos López'), findsOneWidget);
+
+      // Verifica alineación izquierda (recibido) vs derecha (enviado)
+      final receivedCenter = tester.getCenter(
+        find.text('Hola, te envío la propuesta del trabajo.'),
+      );
+      final sentCenter = tester.getCenter(
+        find.text('Perfecto, la reviso ahora mismo.'),
+      );
+      expect(receivedCenter.dx, lessThan(sentCenter.dx));
+
+      // Verifica flujo de Empleador sobre propuesta PENDING: Aceptar o Rechazar
+      // y que el cliente NUNCA vea información de la comisión de la app
+      expect(find.text('Aceptar Acuerdo'), findsOneWidget);
+      expect(find.text('Rechazar'), findsOneWidget);
+      expect(find.textContaining('Comisión'), findsNothing);
+      expect(find.textContaining('50.00'), findsNothing);
     },
   );
 

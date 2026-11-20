@@ -7,6 +7,14 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/brand_logo.dart';
 import '../../../../core/widgets/state_views.dart';
+import '../../../ai/presentation/providers/ai_provider.dart';
+import '../../../catalog/presentation/providers/catalog_provider.dart';
+import '../../../chat/presentation/providers/chat_provider.dart';
+import '../../../jobs/presentation/providers/jobs_provider.dart';
+import '../../../kyc/presentation/providers/kyc_provider.dart';
+import '../../../search/presentation/providers/search_provider.dart';
+import '../../../users/presentation/providers/profile_provider.dart';
+import '../../../wallet/presentation/providers/wallet_provider.dart';
 import '../providers/auth_provider.dart';
 
 /// Pantalla de inicio de sesión profesional integrada con el flujo 2FA + JWT de ManoLocal-Back.
@@ -62,6 +70,15 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (success && mounted) {
+      // Limpia cualquier estado/socket previo antes de abrir la nueva sesión
+      context.read<ChatProvider>().clear();
+      context.read<ProfileProvider>().clear();
+      context.read<JobsProvider>().clear();
+      context.read<WalletProvider>().clear();
+      context.read<CatalogProvider>().clear();
+      context.read<SearchProvider>().clear();
+      context.read<KycProvider>().clear();
+      context.read<AiProvider>().clear();
       context.go(AppRoutes.dashboard);
     }
   }
@@ -278,9 +295,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 10),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    spacing: 8,
+                                    runSpacing: 4,
                                     children: [
                                       TextButton.icon(
                                         onPressed: auth.isLoading

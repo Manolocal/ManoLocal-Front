@@ -30,6 +30,7 @@ class ChatSocketService {
 
   io.Socket? _socket;
   String? _activeRoomId;
+  String? _connectedToken;
   SocketConnectionStatus _status = SocketConnectionStatus.disconnected;
 
   final _statusController = StreamController<SocketConnectionStatus>.broadcast();
@@ -53,38 +54,49 @@ class ChatSocketService {
 
   Future<void> connect({String? customSocketUrl}) async {
     if (!enabled) return;
-    if (_socket != null && _socket!.connected) {
+
+    final token = await tokenStorage.getToken();
+    if (token == null || token.isEmpty) {
+      disconnect();
+      return;
+    }
+
+    if (_socket != null && _socket!.connected && _connectedToken == token) {
       _setStatus(SocketConnectionStatus.connected);
       return;
     }
 
-    final token = await tokenStorage.getToken();
-    if (token == null || token.isEmpty) {
-      _setStatus(SocketConnectionStatus.disconnected);
-      return;
-    }
-
     _disposeSocketOnly();
+    _connectedToken = token;
     _setStatus(SocketConnectionStatus.connecting);
 
     final url = customSocketUrl ?? ApiConstants.socketUrl;
     final options = io.OptionBuilder()
         .setTransports(['websocket'])
-        .enableAutoConnect()
+        .enableForceNew()
+        .enableForceNewConnection()
+        .disableAutoConnect()
         .enableReconnection()
         .setReconnectionAttempts(10)
         .setReconnectionDelay(1500)
         .setAuth({'token': 'Bearer $token'})
         .setExtraHeaders({'Authorization': 'Bearer $token'})
+        .setQuery({'token': 'Bearer $token'})
         .build();
 
+    io.cache.clear();
     final socket = io.io(url, options);
     _socket = socket;
+
+    final connectCompleter = Completer<void>();
 
     socket.onConnect((_) {
       _setStatus(SocketConnectionStatus.connected);
       if (_activeRoomId != null) {
         socket.emit(SocketEvents.joinRoom, {'roomId': _activeRoomId});
+      }
+      if (!connectCompleter.isCompleted) {
+        connectCompleter.complete();
       }
     });
 
@@ -102,6 +114,9 @@ class ChatSocketService {
     socket.onConnectError((err) {
       debugPrint('[Socket.IO] Error de conexión: $err');
       _setStatus(SocketConnectionStatus.disconnected);
+      if (!connectCompleter.isCompleted) {
+        connectCompleter.complete();
+      }
     });
 
     socket.on(SocketEvents.newMessage, (data) {
@@ -123,6 +138,11 @@ class ChatSocketService {
     });
 
     socket.connect();
+
+    await connectCompleter.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {},
+    );
   }
 
   void joinRoom(String roomId) {
@@ -145,7 +165,10 @@ class ChatSocketService {
     required String roomId,
     required String content,
   }) async {
-    if (_socket == null || !_socket!.connected) {
+    final currentToken = await tokenStorage.getToken();
+    if (_socket == null ||
+        !_socket!.connected ||
+        currentToken != _connectedToken) {
       await connect();
     }
 
@@ -181,6 +204,7 @@ class ChatSocketService {
 
   void disconnect() {
     _activeRoomId = null;
+    _connectedToken = null;
     _disposeSocketOnly();
     _setStatus(SocketConnectionStatus.disconnected);
   }
@@ -190,9 +214,11 @@ class ChatSocketService {
     if (socket != null) {
       socket.clearListeners();
       socket.disconnect();
+      socket.close();
       socket.dispose();
       _socket = null;
     }
+    io.cache.clear();
   }
 
   void _handleJobEvent(dynamic data) {
@@ -211,11 +237,24 @@ class ChatSocketService {
   }
 
   Map<String, dynamic>? _asMap(dynamic data) {
-    if (data is Map<String, dynamic>) return data;
     if (data is Map) {
-      return data.map((k, v) => MapEntry(k.toString(), v));
+      return data.map(
+        (k, v) => MapEntry(k.toString(), _normalizeValue(v)),
+      );
     }
     return null;
+  }
+
+  dynamic _normalizeValue(dynamic value) {
+    if (value is Map) {
+      return value.map(
+        (k, v) => MapEntry(k.toString(), _normalizeValue(v)),
+      );
+    }
+    if (value is List) {
+      return value.map(_normalizeValue).toList();
+    }
+    return value;
   }
 
   void _setStatus(SocketConnectionStatus next) {

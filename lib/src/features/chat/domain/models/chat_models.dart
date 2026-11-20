@@ -27,7 +27,7 @@ class ChatUserPreviewModel {
     final rawProfile = json['profile'];
     String? fullName;
     String? phone;
-    if (rawProfile is Map<String, dynamic>) {
+    if (rawProfile is Map) {
       fullName = rawProfile['fullName']?.toString();
       phone = rawProfile['phone']?.toString();
     }
@@ -65,18 +65,33 @@ class ChatMessageModel {
 
   factory ChatMessageModel.fromJson(Map<String, dynamic> json) {
     final rawSender = json['sender'];
+    ChatUserPreviewModel? parsedSender;
+    if (rawSender is Map) {
+      final normalizedSender = rawSender.map(
+        (k, v) => MapEntry(k.toString(), v),
+      );
+      parsedSender = ChatUserPreviewModel.fromJson(normalizedSender);
+    }
+
+    final rawSenderId =
+        json['senderId']?.toString().trim() ??
+        json['sender_id']?.toString().trim() ??
+        '';
+    final resolvedSenderId =
+        rawSenderId.isNotEmpty ? rawSenderId : (parsedSender?.id ?? '');
+
     return ChatMessageModel(
       id: json['id']?.toString() ?? '',
-      roomId: json['roomId']?.toString() ?? '',
-      senderId: json['senderId']?.toString() ?? '',
+      roomId: json['roomId']?.toString() ?? json['room_id']?.toString() ?? '',
+      senderId: resolvedSenderId,
       content: json['content']?.toString() ?? '',
-      isRead: (json['isRead'] as bool?) ?? false,
+      isRead: (json['isRead'] as bool?) ?? (json['is_read'] as bool?) ?? false,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())
-          : null,
-      sender: rawSender is Map<String, dynamic>
-          ? ChatUserPreviewModel.fromJson(rawSender)
-          : null,
+          : (json['created_at'] != null
+              ? DateTime.tryParse(json['created_at'].toString())
+              : null),
+      sender: parsedSender,
     );
   }
 }
