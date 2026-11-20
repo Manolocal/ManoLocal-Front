@@ -7,7 +7,11 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Manolocal Front</string>
+	<string>ManoLocal</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ManoLocal utiliza la cámara para capturar tu identificación oficial (INE), selfie KYC y fotografías de tus trabajos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ManoLocal accede a tu galería para subir fotografías a tu catálogo de trabajos y documentos de verificación.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
