@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import '../../domain/models/catalog_models.dart';
 import '../../domain/repositories/catalog_repository.dart';
 import '../datasources/catalog_remote_data_source.dart';
@@ -12,11 +13,15 @@ class CatalogRepositoryImpl implements CatalogRepository {
     required String filePath,
     required String title,
     String? description,
+    Uint8List? fileBytes,
+    String? fileName,
   }) {
     return remoteDataSource.uploadImage(
       filePath: filePath,
       title: title,
       description: description,
+      fileBytes: fileBytes,
+      fileName: fileName,
     );
   }
 

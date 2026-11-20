@@ -1,12 +1,16 @@
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/network/api_client.dart';
+import '../../../../core/utils/file_upload_helper.dart';
 import '../../domain/models/ai_models.dart';
 
 abstract class AiRemoteDataSource {
   Future<DocumentVerificationModel> verifyDocument({
     required String knowledgeId,
     required String documentFilePath,
+    Uint8List? documentBytes,
+    String? documentFileName,
   });
 
   Future<List<DocumentVerificationModel>> getKnowledgeVerifications(
@@ -27,10 +31,19 @@ class AiRemoteDataSourceImpl implements AiRemoteDataSource {
   Future<DocumentVerificationModel> verifyDocument({
     required String knowledgeId,
     required String documentFilePath,
+    Uint8List? documentBytes,
+    String? documentFileName,
   }) async {
+    final docFile = await FileUploadHelper.fromPathOrBytes(
+      filePath: documentFilePath,
+      bytes: documentBytes,
+      fileName: documentFileName,
+      defaultName: 'certificado.pdf',
+    );
+
     final formData = FormData.fromMap({
       'knowledgeId': knowledgeId,
-      'document': await MultipartFile.fromFile(documentFilePath),
+      'document': docFile,
     });
 
     final response = await apiClient.postMultipart(

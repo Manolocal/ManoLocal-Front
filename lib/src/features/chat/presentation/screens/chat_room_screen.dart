@@ -1,0 +1,975 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../../../core/enums/backend_enums.dart';
+import '../../../../core/network/network_exceptions.dart';
+import '../../../../core/router/app_routes.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/formatters.dart';
+import '../../../../core/utils/navigation_keys.dart';
+import '../../../../core/widgets/state_views.dart';
+import '../../../../core/widgets/status_badges.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../jobs/domain/models/job_models.dart';
+import '../../../jobs/presentation/providers/jobs_provider.dart';
+import '../../../wallet/presentation/providers/wallet_provider.dart';
+import '../../data/datasources/chat_socket_service.dart';
+import '../../domain/models/chat_models.dart';
+import '../providers/chat_provider.dart';
+
+/// Sala privada de chat en tiempo real con Barra de Acuerdos de Trabajo ($50 MXN).
+class ChatRoomScreen extends StatefulWidget {
+  final String roomId;
+  final ChatRoomModel? initialRoom;
+
+  const ChatRoomScreen({
+    super.key,
+    required this.roomId,
+    this.initialRoom,
+  });
+
+  @override
+  State<ChatRoomScreen> createState() => _ChatRoomScreenState();
+}
+
+class _ChatRoomScreenState extends State<ChatRoomScreen> {
+  final _messageController = TextEditingController();
+  final _scrollController = ScrollController();
+  int _lastMessageCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<ChatProvider>().enterRoom(widget.roomId);
+    });
+  }
+
+  @override
+  void dispose() {
+    context.read<ChatProvider>().leaveRoom(widget.roomId);
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+
+    _messageController.clear();
+    final ok = await context.read<ChatProvider>().sendMessage(
+          roomId: widget.roomId,
+          content: text,
+        );
+    if (!ok && mounted) {
+      _messageController.text = text;
+      final err = context.read<ChatProvider>().errorMessage;
+      if (err != null) GlobalNotifier.showErrorSnackBar(err);
+    } else {
+      _scrollToBottom();
+    }
+  }
+
+  Future<void> _openCreateJobSheet() async {
+    final formKey = GlobalKey<FormState>();
+    final titleCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final priceCtrl = TextEditingController();
+
+    final submitted = await showModalBottomSheet<CreateJobRequestModel>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          MediaQuery.viewInsetsOf(ctx).bottom + 24,
+        ),
+        child: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Formalizar acuerdo de trabajo',
+                  style: Theme.of(ctx).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Define el alcance y precio acordado. Al confirmar el especialista se congelará la cuota fija de \$50.00 MXN.',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 18),
+                TextFormField(
+                  controller: titleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Título del servicio',
+                    hintText: 'Ej. Instalación de calentador solar',
+                    prefixIcon: Icon(Icons.work_outline_rounded),
+                  ),
+                  validator: (v) {
+                    final s = v?.trim() ?? '';
+                    if (s.length < 3) {
+                      return 'Escribe al menos 3 caracteres';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: descCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Alcance y detalles (opcional)',
+                    hintText: 'Materiales incluidos, fecha acordada, garantía...',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: priceCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Precio acordado MXN (opcional)',
+                    hintText: '1200.00',
+                    prefixIcon: Icon(Icons.attach_money_rounded),
+                  ),
+                  validator: (v) =>
+                      AppValidators.positiveAmount(v, required: false),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: () {
+                    if (!formKey.currentState!.validate()) return;
+                    final rawPrice = priceCtrl.text.trim().replaceAll(',', '');
+                    Navigator.of(ctx).pop(
+                      CreateJobRequestModel(
+                        roomId: widget.roomId,
+                        title: titleCtrl.text.trim(),
+                        description: descCtrl.text.trim().isEmpty
+                            ? null
+                            : descCtrl.text.trim(),
+                        agreedPrice: rawPrice.isEmpty
+                            ? null
+                            : double.tryParse(rawPrice),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.handshake_rounded),
+                  label: const Text('Enviar propuesta de trabajo'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (submitted == null || !mounted) return;
+    final outcome = await context.read<JobsProvider>().createJob(submitted);
+    if (outcome.isSuccess) {
+      GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
+    } else if (outcome.errorMessage != null) {
+      GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
+    }
+  }
+
+  Future<void> _confirmJob(JobAgreementModel job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmar acuerdo de trabajo'),
+        content: Text(
+          'Al confirmar "${job.title ?? 'este servicio'}", se congelarán ${AppFormatters.currency(job.feeAmount)} de tu saldo disponible hasta que el trabajo se complete o se cancele.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Volver'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Confirmar y Congelar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    final outcome = await context.read<JobsProvider>().confirmJob(job.id);
+    if (!mounted) return;
+
+    if (outcome.isSuccess) {
+      context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
+      GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
+    } else if (outcome.isInsufficientBalance) {
+      _showInsufficientBalanceDialog(outcome.insufficientBalance!);
+    } else if (outcome.errorMessage != null) {
+      GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
+    }
+  }
+
+  void _showInsufficientBalanceDialog(InsufficientBalanceException error) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(
+          Icons.account_balance_wallet_outlined,
+          size: 40,
+          color: AppColors.warning,
+        ),
+        title: const Text('Saldo insuficiente'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(error.message, textAlign: TextAlign.center),
+            if (error.availableBalance != null &&
+                error.requiredAmount != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.silverLight,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    _BalanceLine(
+                      'Disponible actual',
+                      AppFormatters.currency(error.availableBalance!),
+                    ),
+                    const SizedBox(height: 4),
+                    _BalanceLine(
+                      'Cuota requerida',
+                      AppFormatters.currency(error.requiredAmount!),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              context.go(AppRoutes.wallet);
+            },
+            icon: const Icon(Icons.add_card_rounded),
+            label: const Text('Recargar Billetera'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _completeJob(JobAgreementModel job) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Marcar trabajo como completado'),
+        content: Text(
+          '¿Confirmas que el especialista completó "${job.title ?? 'el servicio'}" satisfactoriamente? Esto finalizará el acuerdo y descontará definitivamente la cuota congelada de ${AppFormatters.currency(job.feeAmount)}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Aún no'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Sí, trabajo completado'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true || !mounted) return;
+    final outcome = await context.read<JobsProvider>().completeJob(job.id);
+    if (!mounted) return;
+
+    if (outcome.isSuccess) {
+      context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
+      GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
+    } else if (outcome.errorMessage != null) {
+      GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
+    }
+  }
+
+  Future<void> _cancelJob(JobAgreementModel job) async {
+    final reasonCtrl = TextEditingController();
+    final isConfirmed = job.status == JobStatus.confirmed;
+
+    final confirmCancel = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancelar acuerdo de trabajo'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isConfirmed
+                  ? 'Al cancelar este trabajo confirmado, se ejecutará un rollback automático devolviendo ${AppFormatters.currency(job.feeAmount)} al saldo disponible del especialista.'
+                  : 'Se cancelará esta propuesta de trabajo sin cargo alguno.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Motivo de cancelación (opcional)',
+                hintText: 'Ej. Reprogramación por mutuo acuerdo',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Mantener acuerdo'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: AppColors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Cancelar acuerdo'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmCancel != true || !mounted) return;
+    final outcome = await context.read<JobsProvider>().cancelJob(
+          job.id,
+          reason: reasonCtrl.text.trim(),
+        );
+    if (!mounted) return;
+
+    if (outcome.isSuccess) {
+      context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
+      GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
+    } else if (outcome.errorMessage != null) {
+      GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
+    }
+  }
+
+  void _showRoomJobsHistory(List<JobAgreementModel> roomJobs) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Historial de acuerdos en esta sala',
+              style: Theme.of(ctx).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            if (roomJobs.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('Aún no hay acuerdos registrados en esta sala.'),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: roomJobs.length,
+                  separatorBuilder: (_, _) => const Divider(height: 12),
+                  itemBuilder: (_, index) {
+                    final j = roomJobs[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        j.title ?? 'Acuerdo de trabajo',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        [
+                          if (j.agreedPrice != null)
+                            AppFormatters.currency(j.agreedPrice!),
+                          AppFormatters.dateTime(j.createdAt),
+                          if (j.cancellationReason != null)
+                            'Motivo: ${j.cancellationReason}',
+                        ].join('\n'),
+                      ),
+                      trailing: JobStatusBadge(status: j.status),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final chat = context.watch<ChatProvider>();
+    final jobs = context.watch<JobsProvider>();
+
+    final currentUserId = auth.user?.id ?? '';
+    final room = chat.findRoomById(widget.roomId) ?? widget.initialRoom;
+    final counterpart = room?.counterpart ??
+        (room?.employerId == currentUserId ? room?.specialist : room?.employer);
+    final counterpartName = counterpart?.displayName ?? 'Conversación';
+
+    final messages = chat.messagesForRoom(widget.roomId);
+    if (messages.length != _lastMessageCount) {
+      _lastMessageCount = messages.length;
+      _scrollToBottom();
+    }
+
+    final roomJobsData = jobs.roomJobs(widget.roomId);
+    final activeJob = roomJobsData?.activeJob;
+    final isRoomSpecialist =
+        (room?.specialistId ?? activeJob?.room?.specialistId) == currentUserId;
+    final isRoomEmployer =
+        (room?.employerId ?? activeJob?.room?.employerId) == currentUserId;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            UserAvatar(
+              initials: AppFormatters.initials(counterpartName),
+              radius: 17,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    counterpartName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 15.5),
+                  ),
+                  Text(
+                    chat.socketStatus == SocketConnectionStatus.connected
+                        ? 'En línea · WebSocket activo'
+                        : 'Sincronizando sala...',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.silver,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Historial de acuerdos',
+            icon: const Icon(Icons.history_rounded),
+            onPressed: () =>
+                _showRoomJobsHistory(roomJobsData?.jobs ?? const []),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          _JobAgreementActionBar(
+            activeJob: activeJob,
+            isMutating: jobs.isMutating,
+            isSpecialist: isRoomSpecialist,
+            isEmployer: isRoomEmployer,
+            onCreateJob: _openCreateJobSheet,
+            onConfirmJob:
+                activeJob != null ? () => _confirmJob(activeJob) : null,
+            onCompleteJob:
+                activeJob != null ? () => _completeJob(activeJob) : null,
+            onCancelJob: activeJob != null ? () => _cancelJob(activeJob) : null,
+          ),
+          Expanded(
+            child: chat.isLoadingMessages && messages.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : messages.isEmpty
+                    ? const EmptyStateView(
+                        icon: Icons.chat_outlined,
+                        title: 'Inicia la conversación',
+                        description:
+                            'Acuerden los detalles del servicio, horario y presupuesto. Cuando estén listos, formalicen el acuerdo desde la barra superior.',
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                        itemCount:
+                            messages.length + (chat.hasOlderMessages(widget.roomId) ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          final hasOlder = chat.hasOlderMessages(widget.roomId);
+                          if (hasOlder && index == 0) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Center(
+                                child: TextButton.icon(
+                                  onPressed: () =>
+                                      chat.loadOlderMessages(widget.roomId),
+                                  icon: const Icon(Icons.expand_less_rounded),
+                                  label:
+                                      const Text('Cargar mensajes anteriores'),
+                                ),
+                              ),
+                            );
+                          }
+
+                          final msgIdx = hasOlder ? index - 1 : index;
+                          final message = messages[msgIdx];
+                          final prev =
+                              msgIdx > 0 ? messages[msgIdx - 1] : null;
+                          final showDateHeader = message.createdAt != null &&
+                              (prev?.createdAt == null ||
+                                  !_isSameDay(
+                                    prev!.createdAt!.toLocal(),
+                                    message.createdAt!.toLocal(),
+                                  ));
+
+                          return Column(
+                            children: [
+                              if (showDateHeader)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.silverLight,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Text(
+                                      AppFormatters.chatDayHeader(
+                                        message.createdAt!,
+                                      ),
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.grayMuted,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              _MessageBubble(
+                                message: message,
+                                isMine: message.senderId == currentUserId,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+          ),
+          _MessageComposer(
+            controller: _messageController,
+            isSending: chat.isSending,
+            onSend: _sendMessage,
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+class _JobAgreementActionBar extends StatelessWidget {
+  final JobAgreementModel? activeJob;
+  final bool isMutating;
+  final bool isSpecialist;
+  final bool isEmployer;
+  final VoidCallback onCreateJob;
+  final VoidCallback? onConfirmJob;
+  final VoidCallback? onCompleteJob;
+  final VoidCallback? onCancelJob;
+
+  const _JobAgreementActionBar({
+    required this.activeJob,
+    required this.isMutating,
+    required this.isSpecialist,
+    required this.isEmployer,
+    required this.onCreateJob,
+    this.onConfirmJob,
+    this.onCompleteJob,
+    this.onCancelJob,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? AppColors.graySurface : AppColors.yellowTint;
+    final border = isDark ? AppColors.grayElevated : AppColors.silver;
+
+    if (activeJob == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          border: Border(bottom: BorderSide(color: border)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.handshake_outlined,
+              size: 20,
+              color: AppColors.yellowDark,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '¿Listos para formalizar el servicio?',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: isMutating ? null : onCreateJob,
+              style: FilledButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                textStyle: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              icon: const Icon(Icons.add_task_rounded, size: 16),
+              label: const Text('Acordar Trabajo'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final job = activeJob!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  job.title?.isNotEmpty == true
+                      ? job.title!
+                      : 'Acuerdo de trabajo activo',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              JobStatusBadge(status: job.status),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            [
+              if (job.agreedPrice != null)
+                'Precio: ${AppFormatters.currency(job.agreedPrice!, withSuffix: false)}',
+              'Cuota plataforma: ${AppFormatters.currency(job.feeAmount, withSuffix: false)}',
+            ].join('  ·  '),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (job.status == JobStatus.pending && isSpecialist)
+                FilledButton.icon(
+                  onPressed: isMutating ? null : onConfirmJob,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  icon: const Icon(Icons.lock_clock_rounded, size: 16),
+                  label: Text(
+                    'Confirmar (${AppFormatters.currency(job.feeAmount, withSuffix: false)})',
+                  ),
+                ),
+              if (job.status == JobStatus.pending && !isSpecialist)
+                const AppPillBadge(
+                  label: 'Esperando confirmación del especialista',
+                  icon: Icons.hourglass_bottom_rounded,
+                  backgroundColor: AppColors.silverLight,
+                  foregroundColor: AppColors.gray,
+                ),
+              if (job.status == JobStatus.confirmed && isEmployer)
+                FilledButton.icon(
+                  onPressed: isMutating ? null : onCompleteJob,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: AppColors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  icon: const Icon(Icons.check_circle_rounded, size: 16),
+                  label: const Text('Trabajo Completado'),
+                ),
+              if (job.status == JobStatus.confirmed && !isEmployer)
+                const AppPillBadge(
+                  label: 'En progreso · Cuota congelada',
+                  icon: Icons.engineering_rounded,
+                  backgroundColor: AppColors.infoSoft,
+                  foregroundColor: AppColors.info,
+                ),
+              if (job.status == JobStatus.pending ||
+                  job.status == JobStatus.confirmed)
+                OutlinedButton.icon(
+                  onPressed: isMutating ? null : onCancelJob,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: Text(
+                    job.status == JobStatus.confirmed
+                        ? 'Cancelar (Rollback)'
+                        : 'Cancelar',
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  final ChatMessageModel message;
+  final bool isMine;
+
+  const _MessageBubble({
+    required this.message,
+    required this.isMine,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bubbleColor = isMine
+        ? AppColors.gray
+        : (isDark ? AppColors.graySurface : AppColors.white);
+    final textColor = isMine
+        ? AppColors.white
+        : (isDark ? AppColors.white : AppColors.gray);
+
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.76,
+        ),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: bubbleColor,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isMine ? 16 : 4),
+            bottomRight: Radius.circular(isMine ? 4 : 16),
+          ),
+          border: isMine
+              ? null
+              : Border.all(
+                  color: isDark ? AppColors.grayElevated : AppColors.silver,
+                ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              message.content,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 14,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  AppFormatters.shortTime(message.createdAt),
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: isMine ? AppColors.silver : AppColors.grayMuted,
+                  ),
+                ),
+                if (isMine) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    message.isRead ? Icons.done_all_rounded : Icons.done_rounded,
+                    size: 14,
+                    color: message.isRead ? AppColors.yellow : AppColors.silver,
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageComposer extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isSending;
+  final VoidCallback onSend;
+
+  const _MessageComposer({
+    required this.controller,
+    required this.isSending,
+    required this.onSend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            top: BorderSide(
+              color: isDark ? AppColors.graySurface : AppColors.silver,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => onSend(),
+                decoration: InputDecoration(
+                  hintText: 'Escribe un mensaje...',
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 11,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide(
+                      color: isDark ? AppColors.grayMuted : AppColors.silver,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: const BorderSide(
+                      color: AppColors.yellowDark,
+                      width: 1.6,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Material(
+              color: AppColors.yellow,
+              shape: const CircleBorder(),
+              child: IconButton(
+                onPressed: isSending ? null : onSend,
+                tooltip: 'Enviar',
+                icon: isSending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.gray,
+                        ),
+                      )
+                    : const Icon(Icons.send_rounded, color: AppColors.gray),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BalanceLine extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _BalanceLine(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: AppColors.grayMuted)),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            color: AppColors.gray,
+          ),
+        ),
+      ],
+    );
+  }
+}
