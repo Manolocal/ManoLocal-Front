@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import '../models/catalog_models.dart';
 
 /// Contrato de repositorio para el catálogo de fotografías de trabajos.
@@ -6,6 +7,8 @@ abstract class CatalogRepository {
     required String filePath,
     required String title,
     String? description,
+    Uint8List? fileBytes,
+    String? fileName,
   });
 
   Future<MyCatalogModel> getMyImages();

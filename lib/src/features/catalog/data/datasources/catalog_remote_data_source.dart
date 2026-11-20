@@ -1,6 +1,8 @@
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/network/api_client.dart';
+import '../../../../core/utils/file_upload_helper.dart';
 import '../../domain/models/catalog_models.dart';
 
 abstract class CatalogRemoteDataSource {
@@ -8,6 +10,8 @@ abstract class CatalogRemoteDataSource {
     required String filePath,
     required String title,
     String? description,
+    Uint8List? fileBytes,
+    String? fileName,
   });
 
   Future<MyCatalogModel> getMyImages();
@@ -27,9 +31,18 @@ class CatalogRemoteDataSourceImpl implements CatalogRemoteDataSource {
     required String filePath,
     required String title,
     String? description,
+    Uint8List? fileBytes,
+    String? fileName,
   }) async {
+    final imageFile = await FileUploadHelper.fromPathOrBytes(
+      filePath: filePath,
+      bytes: fileBytes,
+      fileName: fileName,
+      defaultName: 'trabajo.jpg',
+    );
+
     final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(filePath),
+      'file': imageFile,
       'title': title.trim(),
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
