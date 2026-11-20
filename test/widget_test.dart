@@ -98,6 +98,13 @@ class _FakeBackendAdapter implements HttpClientAdapter {
           'quota': {'active': 0, 'limit': 10, 'remaining': 10},
         },
       };
+    } else if (path.startsWith('/search/geo-info/')) {
+      body = {
+        'data': {
+          'municipio': 'Dolores Hidalgo Cuna de la Independencia Nacional',
+          'postalCodes': ['37800', '37806'],
+        },
+      };
     }
 
     return ResponseBody.fromString(
@@ -292,6 +299,22 @@ void main() {
         await tester.tap(find.text('Trabajos'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Perfil'));
+        await tester.pumpAndSettle();
+
+        // Validar modal de edición de perfil con municipio SEPOMEX largo
+        await tester.tap(find.text('Editar'));
+        await tester.pumpAndSettle();
+        final cpField = find.widgetWithText(
+          TextFormField,
+          'Código Postal (5 dígitos) *',
+        );
+        await tester.enterText(cpField, '37806');
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('Dolores Hidalgo Cuna de la Independencia'),
+          findsOneWidget,
+        );
+        Navigator.of(tester.element(cpField)).pop();
         await tester.pumpAndSettle();
       }
     },

@@ -168,19 +168,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       detectedMunicipio!.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(
-                          Icons.check_circle_outline_rounded,
-                          size: 16,
-                          color: AppColors.success,
+                        const Padding(
+                          padding: EdgeInsets.only(top: 2),
+                          child: Icon(
+                            Icons.check_circle_outline_rounded,
+                            size: 16,
+                            color: AppColors.success,
+                          ),
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          'Municipio SEPOMEX: $detectedMunicipio',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.success,
+                        Expanded(
+                          child: Text(
+                            'Municipio SEPOMEX: $detectedMunicipio',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.success,
+                              height: 1.3,
+                            ),
                           ),
                         ),
                       ],
@@ -479,8 +486,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             DocumentVerificationBadge(
                               status: item.status,

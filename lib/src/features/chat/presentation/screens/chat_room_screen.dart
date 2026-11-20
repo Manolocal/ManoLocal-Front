@@ -959,9 +959,14 @@ class _BalanceLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: AppColors.grayMuted)),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(color: AppColors.grayMuted),
+          ),
+        ),
+        const SizedBox(width: 8),
         Text(
           value,
           style: const TextStyle(

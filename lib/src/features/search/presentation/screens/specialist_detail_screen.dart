@@ -222,11 +222,15 @@ class _SpecialistDetailScreenState extends State<SpecialistDetailScreen> {
                                       color: AppColors.yellow,
                                     ),
                                     const SizedBox(width: 4),
-                                    Text(
-                                      'Zona de servicio: CP ${preview!.profile!.postalCode}',
-                                      style: const TextStyle(
-                                        color: AppColors.silver,
-                                        fontSize: 12.5,
+                                    Expanded(
+                                      child: Text(
+                                        'Zona de servicio: CP ${preview!.profile!.postalCode}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppColors.silver,
+                                          fontSize: 12.5,
+                                        ),
                                       ),
                                     ),
                                   ],

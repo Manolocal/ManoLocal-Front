@@ -463,9 +463,13 @@ class _SpecialistCard extends StatelessWidget {
                     color: AppColors.grayMuted,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    'Cobertura en CP $cp',
-                    style: theme.textTheme.bodySmall,
+                  Expanded(
+                    child: Text(
+                      'Cobertura en CP $cp',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
                   ),
                 ],
               ),
