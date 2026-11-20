@@ -181,6 +181,34 @@ class JobsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Marca localmente un acuerdo finalizado como reseñado tras publicar en `/reviews`.
+  void markJobReviewed(String jobId, int rating) {
+    JobAgreementModel? target;
+    for (final j in _myJobs) {
+      if (j.id == jobId) {
+        target = j;
+        break;
+      }
+    }
+    if (target == null) {
+      for (final room in _roomJobsCache.values) {
+        for (final j in room.jobs) {
+          if (j.id == jobId) {
+            target = j;
+            break;
+          }
+        }
+        if (target != null) break;
+      }
+    }
+    if (target == null) return;
+
+    _upsertJobLocally(
+      target.copyWith(hasReview: true, reviewRating: rating),
+    );
+    notifyListeners();
+  }
+
   void _upsertJobLocally(JobAgreementModel updated) {
     // Actualizar lista global
     final idx = _myJobs.indexWhere((j) => j.id == updated.id);

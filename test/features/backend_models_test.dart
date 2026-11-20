@@ -5,6 +5,7 @@ import 'package:manolocal_front/src/features/auth/domain/models/auth_models.dart
 import 'package:manolocal_front/src/features/catalog/domain/models/catalog_models.dart';
 import 'package:manolocal_front/src/features/chat/domain/models/chat_models.dart';
 import 'package:manolocal_front/src/features/jobs/domain/models/job_models.dart';
+import 'package:manolocal_front/src/features/reviews/domain/models/review_models.dart';
 import 'package:manolocal_front/src/features/search/domain/models/search_models.dart';
 import 'package:manolocal_front/src/features/users/domain/models/user_profile_models.dart';
 import 'package:manolocal_front/src/features/wallet/domain/models/wallet_models.dart';
@@ -85,6 +86,8 @@ void main() {
               'fullName': 'Luis García',
               'phone': '5587654321',
               'postalCode': '01000',
+              'ratingAverage': 4.75,
+              'ratingCount': 4,
             },
             'knowledges': [
               {'id': 'k-10', 'name': 'Electricista', 'verifications': []},
@@ -108,6 +111,8 @@ void main() {
 
       expect(result.specialists.length, 1);
       expect(result.specialists.first.displayName, 'Luis García');
+      expect(result.specialists.first.profile?.ratingAverage, 4.75);
+      expect(result.specialists.first.profile?.ratingCount, 4);
       expect(result.geoFilter.municipio, 'Álvaro Obregón');
       expect(result.geoFilter.totalPostalCodesInMunicipality, 75);
       expect(result.pagination.total, 1);
@@ -211,6 +216,65 @@ void main() {
       expect(job.agreedPrice, 1200.0);
       expect(job.feeAmount, 50.0);
       expect(job.room?.specialistId, 'esp-1');
+    });
+
+    test('SpecialistReviewsPageModel y CreateReviewResultModel parsean /reviews', () {
+      final page = SpecialistReviewsPageModel.fromJson({
+        'specialist': {
+          'id': 'esp-1',
+          'name': 'Carlos',
+          'fullName': 'Carlos López',
+          'ratingAverage': 4.8,
+          'ratingCount': 5,
+        },
+        'reviews': [
+          {
+            'id': 'rev-1',
+            'jobAgreementId': 'job-1',
+            'employerId': 'emp-1',
+            'specialistId': 'esp-1',
+            'rating': 5,
+            'comment': 'Excelente trabajo y puntualidad',
+            'jobTitle': 'Instalación de boiler',
+            'createdAt': '2026-11-20T12:00:00.000Z',
+            'employer': {'id': 'emp-1', 'name': 'Ana Martínez'},
+          },
+        ],
+        'meta': {
+          'total': 5,
+          'page': 1,
+          'limit': 10,
+          'totalPages': 1,
+          'hasNext': false,
+          'hasPrev': false,
+        },
+      });
+
+      expect(page.specialist.displayName, 'Carlos López');
+      expect(page.specialist.ratingAverage, 4.8);
+      expect(page.specialist.ratingCount, 5);
+      expect(page.reviews.single.employer.name, 'Ana Martínez');
+      expect(page.reviews.single.rating, 5);
+
+      final created = CreateReviewResultModel.fromJson({
+        'message': 'Reseña publicada exitosamente',
+        'review': {
+          'id': 'rev-2',
+          'jobAgreementId': 'job-2',
+          'employerId': 'emp-1',
+          'specialistId': 'esp-1',
+          'rating': 4,
+          'employer': {'id': 'emp-1', 'name': 'Ana'},
+        },
+        'specialistReputation': {
+          'specialistId': 'esp-1',
+          'ratingAverage': 4.67,
+          'ratingCount': 6,
+        },
+      });
+
+      expect(created.specialistReputation.ratingAverage, 4.67);
+      expect(created.specialistReputation.ratingCount, 6);
     });
   });
 }

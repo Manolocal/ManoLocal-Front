@@ -40,6 +40,8 @@ class JobAgreementModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final JobRoomRefModel? room;
+  final bool hasReview;
+  final int? reviewRating;
 
   const JobAgreementModel({
     required this.id,
@@ -58,7 +60,35 @@ class JobAgreementModel {
     this.createdAt,
     this.updatedAt,
     this.room,
+    this.hasReview = false,
+    this.reviewRating,
   });
+
+  JobAgreementModel copyWith({
+    bool? hasReview,
+    int? reviewRating,
+  }) {
+    return JobAgreementModel(
+      id: id,
+      roomId: roomId,
+      title: title,
+      description: description,
+      agreedPrice: agreedPrice,
+      feeAmount: feeAmount,
+      status: status,
+      createdById: createdById,
+      cancelledById: cancelledById,
+      cancellationReason: cancellationReason,
+      confirmedAt: confirmedAt,
+      completedAt: completedAt,
+      cancelledAt: cancelledAt,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      room: room,
+      hasReview: hasReview ?? this.hasReview,
+      reviewRating: reviewRating ?? this.reviewRating,
+    );
+  }
 
   factory JobAgreementModel.fromJson(Map<String, dynamic> json) {
     final rawRoom = json['room'];
@@ -81,6 +111,8 @@ class JobAgreementModel {
       room: rawRoom is Map<String, dynamic>
           ? JobRoomRefModel.fromJson(rawRoom)
           : null,
+      hasReview: (json['hasReview'] as bool?) ?? false,
+      reviewRating: (json['reviewRating'] as num?)?.toInt(),
     );
   }
 

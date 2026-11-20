@@ -455,6 +455,15 @@ class _HeroWelcomeCard extends StatelessWidget {
               UserStatusBadge(status: status),
             ],
           ),
+          const SizedBox(height: 12),
+          const Text(
+            BrandLogo.appSlogan,
+            style: TextStyle(
+              color: AppColors.silver,
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
         ],
       ),
     );

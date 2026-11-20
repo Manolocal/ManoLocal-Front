@@ -95,6 +95,13 @@ class ApiConstants {
   static String jobConfirm(String id) => '/jobs/$id/confirm';
   static String jobComplete(String id) => '/jobs/$id/complete';
   static String jobCancel(String id) => '/jobs/$id/cancel';
+
+  // Reviews (/reviews)
+  static const String reviews = '/reviews';
+  static String reviewsBySpecialist(String specialistId) =>
+      '/reviews/specialist/$specialistId';
+  static String reviewByJob(String jobAgreementId) =>
+      '/reviews/job/$jobAgreementId';
 }
 
 /// Eventos Socket.IO expuestos por `ChatGateway` en ManoLocal-Back.

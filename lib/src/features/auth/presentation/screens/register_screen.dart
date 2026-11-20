@@ -6,6 +6,7 @@ import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/navigation_keys.dart';
+import '../../../../core/widgets/brand_logo.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../providers/auth_provider.dart';
 
@@ -82,6 +83,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        const BrandLogo(
+                          size: 42,
+                          showWordmark: true,
+                          showSlogan: true,
+                        ),
+                        const SizedBox(height: 16),
+                        const Divider(height: 1),
+                        const SizedBox(height: 16),
                         Text(
                           'Elige cómo usarás ManoLocal',
                           style: theme.textTheme.titleMedium,

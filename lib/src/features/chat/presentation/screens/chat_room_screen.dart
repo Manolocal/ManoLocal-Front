@@ -13,6 +13,7 @@ import '../../../../core/widgets/status_badges.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../jobs/domain/models/job_models.dart';
 import '../../../jobs/presentation/providers/jobs_provider.dart';
+import '../../../reviews/presentation/widgets/create_review_modal.dart';
 import '../../../users/presentation/providers/profile_provider.dart';
 import '../../../wallet/presentation/providers/wallet_provider.dart';
 import '../../data/datasources/chat_socket_service.dart';
@@ -330,7 +331,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  Future<void> _completeJob(JobAgreementModel job) async {
+  Future<void> _completeJob(
+    JobAgreementModel job, {
+    String? specialistName,
+  }) async {
     final ok = await SafeActionDialog.show(
       context,
       title: 'Marcar trabajo como completado',
@@ -349,9 +353,28 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (outcome.isSuccess) {
       context.read<WalletProvider>().syncWallet(outcome.result!.wallet);
       GlobalNotifier.showSuccessSnackBar(outcome.result!.message);
+      await _openReviewModal(
+        outcome.result!.job,
+        specialistName: specialistName,
+      );
     } else if (outcome.errorMessage != null) {
       GlobalNotifier.showErrorSnackBar(outcome.errorMessage!);
     }
+  }
+
+  Future<void> _openReviewModal(
+    JobAgreementModel job, {
+    String? specialistName,
+  }) async {
+    final result = await CreateReviewModal.show(
+      context,
+      job: job,
+      specialistName: specialistName,
+    );
+    if (!mounted || result == null) return;
+    GlobalNotifier.showSuccessSnackBar(
+      '¡Reseña publicada! Promedio actualizado: ${result.specialistReputation.ratingAverage.toStringAsFixed(1)}★',
+    );
   }
 
   /// Permite rechazar (Empleador en PENDING) o cancelar (ambos en PENDING/CONFIRMED).
@@ -502,6 +525,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final isRoomEmployer = roomEmployerId != null && roomEmployerId.isNotEmpty
         ? (roomEmployerId == currentUserId && currentUserId.isNotEmpty)
         : userRole == UserRole.empleador;
+    JobAgreementModel? pendingReviewJob;
+    if (isRoomEmployer) {
+      for (final j in roomJobsData?.jobs ?? const <JobAgreementModel>[]) {
+        if (j.status == JobStatus.completed && !j.hasReview) {
+          pendingReviewJob = j;
+          break;
+        }
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -549,6 +581,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         children: [
           _JobAgreementActionBar(
             activeJob: activeJob,
+            pendingReviewJob: pendingReviewJob,
             isMutating: jobs.isMutating,
             isSpecialist: isRoomSpecialist,
             isEmployer: isRoomEmployer,
@@ -561,13 +594,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       isSpecialist: isRoomSpecialist,
                     )
                 : null,
-            onCompleteJob:
-                activeJob != null ? () => _completeJob(activeJob) : null,
+            onCompleteJob: activeJob != null
+                ? () => _completeJob(
+                      activeJob,
+                      specialistName: counterpartName,
+                    )
+                : null,
             onCancelJob: activeJob != null
                 ? () => _cancelOrRejectJob(
                       activeJob,
                       isRejection: false,
                       isSpecialist: isRoomSpecialist,
+                    )
+                : null,
+            onReviewJob: pendingReviewJob != null
+                ? () => _openReviewModal(
+                      pendingReviewJob!,
+                      specialistName: counterpartName,
                     )
                 : null,
           ),
@@ -677,6 +720,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
 class _JobAgreementActionBar extends StatelessWidget {
   final JobAgreementModel? activeJob;
+  final JobAgreementModel? pendingReviewJob;
   final bool isMutating;
   final bool isSpecialist;
   final bool isEmployer;
@@ -685,9 +729,11 @@ class _JobAgreementActionBar extends StatelessWidget {
   final VoidCallback? onRejectJob;
   final VoidCallback? onCompleteJob;
   final VoidCallback? onCancelJob;
+  final VoidCallback? onReviewJob;
 
   const _JobAgreementActionBar({
     required this.activeJob,
+    this.pendingReviewJob,
     required this.isMutating,
     required this.isSpecialist,
     required this.isEmployer,
@@ -696,6 +742,7 @@ class _JobAgreementActionBar extends StatelessWidget {
     this.onRejectJob,
     this.onCompleteJob,
     this.onCancelJob,
+    this.onReviewJob,
   });
 
   @override
@@ -705,6 +752,7 @@ class _JobAgreementActionBar extends StatelessWidget {
     final border = isDark ? AppColors.grayElevated : AppColors.silver;
 
     if (activeJob == null) {
+      final canReviewPending = isEmployer && pendingReviewJob != null;
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -714,23 +762,42 @@ class _JobAgreementActionBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(
-              Icons.handshake_outlined,
+            Icon(
+              canReviewPending
+                  ? Icons.star_rounded
+                  : Icons.handshake_outlined,
               size: 20,
               color: AppColors.yellowDark,
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                isSpecialist
-                    ? '¿Listos? Envía el acuerdo aceptando la comisión (\$50 MXN).'
-                    : 'El especialista enviará el acuerdo formal cuando definan el trabajo.',
+                canReviewPending
+                    ? '¡Servicio completado! Califica tu experiencia con "${pendingReviewJob!.title ?? 'el trabajo'}".'
+                    : (isSpecialist
+                        ? '¿Listos? Envía el acuerdo aceptando la comisión (\$50 MXN).'
+                        : 'El especialista enviará el acuerdo formal cuando definan el trabajo.'),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
               ),
             ),
-            if (isSpecialist) ...[
+            if (canReviewPending) ...[
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: onReviewJob,
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  textStyle: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                icon: const Icon(Icons.star_rounded, size: 16),
+                label: const Text('Calificar'),
+              ),
+            ] else if (isSpecialist) ...[
               const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: isMutating ? null : onCreateJob,

@@ -32,6 +32,10 @@ import '../../features/kyc/data/datasources/kyc_remote_data_source.dart';
 import '../../features/kyc/data/repositories/kyc_repository_impl.dart';
 import '../../features/kyc/domain/repositories/kyc_repository.dart';
 import '../../features/kyc/presentation/providers/kyc_provider.dart';
+import '../../features/reviews/data/datasources/reviews_remote_data_source.dart';
+import '../../features/reviews/data/repositories/reviews_repository_impl.dart';
+import '../../features/reviews/domain/repositories/reviews_repository.dart';
+import '../../features/reviews/presentation/providers/reviews_provider.dart';
 import '../../features/search/data/datasources/search_remote_data_source.dart';
 import '../../features/search/data/repositories/search_repository_impl.dart';
 import '../../features/search/domain/repositories/search_repository.dart';
@@ -105,6 +109,9 @@ Future<void> initDependencies({
         }
         if (sl.isRegistered<AiProvider>()) {
           sl<AiProvider>().clear();
+        }
+        if (sl.isRegistered<ReviewsProvider>()) {
+          sl<ReviewsProvider>().clear();
         }
         if (sl.isRegistered<GoRouter>()) {
           sl<GoRouter>().go(AppRoutes.login);
@@ -203,6 +210,16 @@ Future<void> initDependencies({
     () => JobsRepositoryImpl(remoteDataSource: sl<JobsRemoteDataSource>()),
   );
 
+  // Reviews
+  sl.registerLazySingleton<ReviewsRemoteDataSource>(
+    () => ReviewsRemoteDataSourceImpl(apiClient: sl<ApiClient>()),
+  );
+  sl.registerLazySingleton<ReviewsRepository>(
+    () => ReviewsRepositoryImpl(
+      remoteDataSource: sl<ReviewsRemoteDataSource>(),
+    ),
+  );
+
   // 4. Providers de Presentación (ChangeNotifier)
   sl.registerLazySingleton<AuthProvider>(
     () => AuthProvider(authRepository: sl<AuthRepository>()),
@@ -244,6 +261,9 @@ Future<void> initDependencies({
   sl.registerLazySingleton<AiProvider>(
     () => AiProvider(aiRepository: sl<AiRepository>()),
   );
+  sl.registerLazySingleton<ReviewsProvider>(
+    () => ReviewsProvider(reviewsRepository: sl<ReviewsRepository>()),
+  );
 
   // 5. Restaurar sesión previa si existe token guardado antes de crear el router
   await sl<AuthProvider>().checkAuthStatus();
@@ -274,6 +294,7 @@ List<SingleChildWidget> buildAppProviders() {
     Provider<ChatRepository>.value(value: sl<ChatRepository>()),
     Provider<WalletRepository>.value(value: sl<WalletRepository>()),
     Provider<JobsRepository>.value(value: sl<JobsRepository>()),
+    Provider<ReviewsRepository>.value(value: sl<ReviewsRepository>()),
     ChangeNotifierProvider<ThemeProvider>.value(value: sl<ThemeProvider>()),
     ChangeNotifierProvider<AuthProvider>.value(value: sl<AuthProvider>()),
     ChangeNotifierProvider<ProfileProvider>.value(value: sl<ProfileProvider>()),
@@ -287,5 +308,8 @@ List<SingleChildWidget> buildAppProviders() {
     ChangeNotifierProvider<ChatProvider>.value(value: sl<ChatProvider>()),
     ChangeNotifierProvider<KycProvider>.value(value: sl<KycProvider>()),
     ChangeNotifierProvider<AiProvider>.value(value: sl<AiProvider>()),
+    ChangeNotifierProvider<ReviewsProvider>.value(
+      value: sl<ReviewsProvider>(),
+    ),
   ];
 }
