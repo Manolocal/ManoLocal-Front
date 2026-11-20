@@ -1,8 +1,8 @@
 import 'package:dio/dio.dart';
-import 'package:manolocal_front/core/services/token_storage_service.dart';
+import '../services/token_storage_service.dart';
 
 /// Interceptor global de Dio encargado de inyectar automáticamente el token JWT
-/// en las cabeceras de todas las peticiones salientes dirigidas a la API NestJS.
+/// en la cabecera `Authorization` de todas las peticiones salientes hacia NestJS.
 class DioAuthInterceptor extends Interceptor {
   final TokenStorageService tokenStorage;
 
@@ -13,7 +13,6 @@ class DioAuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    // Si la petición indica explícitamente que no requiere autenticación
     final bool requiresAuth = options.extra['requiresAuth'] ?? true;
 
     if (requiresAuth) {
@@ -22,14 +21,17 @@ class DioAuthInterceptor extends Interceptor {
         if (token != null && token.isNotEmpty) {
           options.headers['Authorization'] = 'Bearer $token';
         }
-      } catch (e) {
-        // En caso de fallo al leer almacenamiento, continuamos la petición
+      } catch (_) {
+        // Si falla la lectura del almacenamiento local, continuamos sin bloquear la petición.
       }
     }
 
-    // Cabeceras estándares por defecto
-    options.headers.putIfAbsent('Content-Type', () => 'application/json');
     options.headers.putIfAbsent('Accept', () => 'application/json');
+
+    // No sobrescribir el Content-Type cuando se envía multipart/form-data (KYC, AI, Catálogo).
+    if (options.data is! FormData) {
+      options.headers.putIfAbsent('Content-Type', () => 'application/json');
+    }
 
     return handler.next(options);
   }

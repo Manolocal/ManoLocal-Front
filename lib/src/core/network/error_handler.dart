@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:manolocal_front/core/network/network_exceptions.dart';
-import 'package:manolocal_front/core/services/token_storage_service.dart';
-import 'package:manolocal_front/core/utils/navigation_keys.dart';
+import '../services/token_storage_service.dart';
+import '../utils/navigation_keys.dart';
+import 'network_exceptions.dart';
 
-/// Callback para ejecutar acciones de cierre de sesión centralizado
+/// Callback invocado cuando ocurre un 401 en una ruta protegida para cerrar sesión.
 typedef OnSessionExpired = void Function();
 
-/// Manejador de errores global que intercepta errores HTTP (DioException)
-/// y ejecuta acciones centralizadas para los códigos 401, 403 y 500.
+/// Manejador global de errores HTTP que intercepta códigos 401, 403, 500 (y 400/402/404/409)
+/// devueltos por `HttpExceptionFilter` en NestJS y ejecuta acciones centralizadas.
 class ErrorHandlerInterceptor extends Interceptor {
   final TokenStorageService? tokenStorage;
   final OnSessionExpired? onSessionExpired;
@@ -24,43 +24,78 @@ class ErrorHandlerInterceptor extends Interceptor {
     final statusCode = err.response?.statusCode;
     final responseData = err.response?.data;
 
-    // Extrae el mensaje de error si la API de NestJS lo devolvió en { message: ... }
     String? apiMessage;
-    if (responseData is Map && responseData['message'] != null) {
-      final msg = responseData['message'];
-      if (msg is List) {
-        apiMessage = msg.join(', ');
-      } else {
-        apiMessage = msg.toString();
+    String? errorCode;
+    dynamic details;
+    String? path;
+    String? timestamp;
+
+    if (responseData is Map) {
+      final rawMessage = responseData['message'];
+      if (rawMessage is List) {
+        apiMessage = rawMessage.join(', ');
+      } else if (rawMessage != null) {
+        apiMessage = rawMessage.toString();
       }
+      errorCode = responseData['code']?.toString();
+      details = responseData['details'];
+      path = responseData['path']?.toString();
+      timestamp = responseData['timestamp']?.toString();
     }
 
-    AppException appException;
+    final bool requiresAuth = err.requestOptions.extra['requiresAuth'] ?? true;
+    final AppException appException;
 
     switch (statusCode) {
       case 401:
-        // [401 Unauthorized]: Sesión expirada o token inválido
-        debugPrint('[ErrorHandler] 401 detectado -> Cerrando sesión...');
-        unawaited(tokenStorage?.clearAll());
-        onSessionExpired?.call();
-        GlobalNotifier.showWarningSnackBar(
-          apiMessage ?? 'Tu sesión ha expirado o no es válida. Inicia sesión nuevamente.',
-        );
+        debugPrint('[ErrorHandler] 401 detectado (requiresAuth=$requiresAuth)');
+        if (requiresAuth) {
+          unawaited(tokenStorage?.clearAll());
+          onSessionExpired?.call();
+          GlobalNotifier.showWarningSnackBar(
+            apiMessage ??
+                'Tu sesión ha expirado o no es válida. Inicia sesión nuevamente.',
+          );
+        } else {
+          GlobalNotifier.showWarningSnackBar(
+            apiMessage ?? 'Credenciales o código de verificación inválidos.',
+          );
+        }
         appException = UnauthorizedException(
           message: apiMessage ?? 'No autorizado (401)',
-          details: responseData,
+          errorCode: errorCode,
+          details: details ?? responseData,
+          path: path,
+          timestamp: timestamp,
+        );
+        break;
+
+      case 402:
+        debugPrint('[ErrorHandler] 402 detectado -> Saldo insuficiente');
+        GlobalNotifier.showWarningSnackBar(
+          apiMessage ?? 'Saldo disponible insuficiente para confirmar el trabajo.',
+        );
+        appException = InsufficientBalanceException(
+          message: apiMessage ?? 'Saldo insuficiente (402)',
+          errorCode: errorCode ?? 'INSUFFICIENT_BALANCE',
+          details: details ?? responseData,
+          path: path,
+          timestamp: timestamp,
         );
         break;
 
       case 403:
-        // [403 Forbidden]: Sin permisos suficientes
         debugPrint('[ErrorHandler] 403 detectado -> Acceso denegado');
         GlobalNotifier.showWarningSnackBar(
-          apiMessage ?? 'Acceso denegado: No tienes permisos para realizar esta acción (403).',
+          apiMessage ??
+              'Acceso denegado: No tienes permisos suficientes para realizar esta acción (403).',
         );
         appException = ForbiddenException(
           message: apiMessage ?? 'Prohibido (403)',
-          details: responseData,
+          errorCode: errorCode,
+          details: details ?? responseData,
+          path: path,
+          timestamp: timestamp,
         );
         break;
 
@@ -68,38 +103,59 @@ class ErrorHandlerInterceptor extends Interceptor {
       case 502:
       case 503:
       case 504:
-        // [500 Internal Server Error]: Fallo del servidor NestJS
         debugPrint('[ErrorHandler] $statusCode detectado -> Error de servidor');
         GlobalNotifier.showErrorSnackBar(
-          apiMessage ?? 'Error en el servidor ($statusCode). Por favor intenta de nuevo más tarde.',
+          apiMessage ??
+              'Error en el servidor ($statusCode). Por favor intenta de nuevo más tarde.',
         );
         appException = ServerErrorException(
           message: apiMessage ?? 'Error interno del servidor ($statusCode)',
           statusCode: statusCode,
-          details: responseData,
+          errorCode: errorCode,
+          details: details ?? responseData,
+          path: path,
+          timestamp: timestamp,
         );
         break;
 
       case 400:
         appException = BadRequestException(
-          message: apiMessage ?? 'Solicitud incorrecta (400). Revisa los datos enviados.',
-          details: responseData,
+          message:
+              apiMessage ?? 'Solicitud incorrecta (400). Revisa los datos enviados.',
+          errorCode: errorCode,
+          details: details ?? responseData,
+          path: path,
+          timestamp: timestamp,
         );
         break;
 
       case 404:
         appException = NotFoundException(
           message: apiMessage ?? 'Recurso no encontrado (404).',
-          details: responseData,
+          errorCode: errorCode,
+          details: details ?? responseData,
+          path: path,
+          timestamp: timestamp,
+        );
+        break;
+
+      case 409:
+        appException = ConflictException(
+          message: apiMessage ?? 'Conflicto con el estado actual del recurso (409).',
+          errorCode: errorCode,
+          details: details ?? responseData,
+          path: path,
+          timestamp: timestamp,
         );
         break;
 
       default:
-        // Manejo de errores por tipo de conexión (Timeouts, falta de internet)
         if (err.type == DioExceptionType.connectionTimeout ||
             err.type == DioExceptionType.receiveTimeout ||
             err.type == DioExceptionType.sendTimeout) {
-          GlobalNotifier.showErrorSnackBar('Tiempo de espera agotado al conectar con el servidor.');
+          GlobalNotifier.showErrorSnackBar(
+            'Tiempo de espera agotado al conectar con el servidor.',
+          );
           appException = const TimeoutNetworkException();
         } else if (err.type == DioExceptionType.connectionError) {
           GlobalNotifier.showErrorSnackBar(
@@ -110,17 +166,15 @@ class ErrorHandlerInterceptor extends Interceptor {
           appException = AppException(
             message: apiMessage ?? err.message ?? 'Ocurrió un error de red inesperado.',
             statusCode: statusCode,
-            details: responseData,
+            errorCode: errorCode,
+            details: details ?? responseData,
+            path: path,
+            timestamp: timestamp,
           );
         }
         break;
     }
 
-    // Continuamos pasando un DioException enriquecido con el AppException en el error
-    final customDioError = err.copyWith(
-      error: appException,
-    );
-
-    handler.next(customDioError);
+    handler.next(err.copyWith(error: appException));
   }
 }
