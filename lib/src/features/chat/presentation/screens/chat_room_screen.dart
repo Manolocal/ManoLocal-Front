@@ -7,6 +7,7 @@ import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/utils/navigation_keys.dart';
+import '../../../../core/widgets/safe_action_dialog.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/status_badges.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
@@ -247,29 +248,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   /// Solo el Empleador acepta el acuerdo propuesto por el especialista.
   Future<void> _acceptJob(JobAgreementModel job) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Aceptar acuerdo de trabajo'),
-        content: Text(
+    final confirmed = await SafeActionDialog.show(
+      context,
+      title: 'Aceptar acuerdo de trabajo',
+      message:
           '¿Deseas aceptar la propuesta "${job.title ?? 'Acuerdo de servicio'}"'
           '${job.agreedPrice != null ? ' por ${AppFormatters.currency(job.agreedPrice!)}' : ''}? '
           'Al aceptar, el servicio pasará a estado en curso y cualquiera de las dos partes podrá cancelarlo antes de completarse.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Volver'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Aceptar acuerdo'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Aceptar acuerdo',
+      cancelLabel: 'Volver',
+      icon: Icons.handshake_outlined,
+      isDestructive: false,
     );
 
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     final outcome = await context.read<JobsProvider>().confirmJob(job.id);
     if (!mounted) return;
 
@@ -339,27 +331,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _completeJob(JobAgreementModel job) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Marcar trabajo como completado'),
-        content: Text(
+    final ok = await SafeActionDialog.show(
+      context,
+      title: 'Marcar trabajo como completado',
+      message:
           '¿Confirmas que el especialista completó "${job.title ?? 'el servicio'}" satisfactoriamente? Esto finalizará el acuerdo de trabajo.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Aún no'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Sí, trabajo completado'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Sí, trabajo completado',
+      cancelLabel: 'Aún no',
+      icon: Icons.check_circle_outline_rounded,
+      isDestructive: false,
     );
 
-    if (ok != true || !mounted) return;
+    if (!ok || !mounted) return;
     final outcome = await context.read<JobsProvider>().completeJob(job.id);
     if (!mounted) return;
 
@@ -385,52 +368,31 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ? '¿Deseas rechazar esta propuesta de trabajo? Podrás seguir acordando los detalles en el chat.'
             : '¿Seguro que deseas cancelar este acuerdo de trabajo?');
 
-    final confirmCancel = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          isRejection
-              ? 'Rechazar propuesta de trabajo'
-              : 'Cancelar acuerdo de trabajo',
+    final confirmCancel = await SafeActionDialog.show(
+      context,
+      title: isRejection
+          ? 'Rechazar propuesta de trabajo'
+          : 'Cancelar acuerdo de trabajo',
+      message: descriptionText,
+      confirmLabel: isRejection ? 'Rechazar propuesta' : 'Cancelar acuerdo',
+      cancelLabel: 'Volver',
+      icon: Icons.cancel_outlined,
+      isDestructive: true,
+      extraContent: TextField(
+        controller: reasonCtrl,
+        maxLines: 2,
+        decoration: InputDecoration(
+          labelText: isRejection
+              ? 'Motivo del rechazo (opcional)'
+              : 'Motivo de cancelación (opcional)',
+          hintText: isRejection
+              ? 'Ej. Ajustar presupuesto o fecha'
+              : 'Ej. Reprogramación por mutuo acuerdo',
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(descriptionText),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonCtrl,
-              maxLines: 2,
-              decoration: InputDecoration(
-                labelText: isRejection
-                    ? 'Motivo del rechazo (opcional)'
-                    : 'Motivo de cancelación (opcional)',
-                hintText: isRejection
-                    ? 'Ej. Ajustar presupuesto o fecha'
-                    : 'Ej. Reprogramación por mutuo acuerdo',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Volver'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: AppColors.white,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(isRejection ? 'Rechazar propuesta' : 'Cancelar acuerdo'),
-          ),
-        ],
       ),
     );
 
-    if (confirmCancel != true || !mounted) return;
+    if (!confirmCancel || !mounted) return;
     final enteredReason = reasonCtrl.text.trim();
     final reason = enteredReason.isNotEmpty
         ? enteredReason

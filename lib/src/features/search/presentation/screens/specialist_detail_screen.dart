@@ -5,6 +5,7 @@ import '../../../../core/enums/backend_enums.dart';
 import '../../../../core/router/app_routes.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/custom_image_cache.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/status_badges.dart';
 import '../../../catalog/domain/models/catalog_models.dart';
@@ -68,10 +69,14 @@ class _SpecialistDetailScreenState extends State<SpecialistDetailScreen> {
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 420),
               child: InteractiveViewer(
-                child: Image.network(
-                  image.imageUrl,
+                child: CustomImageCache(
+                  imageUrl: image.imageUrl,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const SizedBox(
+                  placeholder: const SizedBox(
+                    height: 220,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  errorWidget: const SizedBox(
                     height: 220,
                     child: Center(
                       child: Icon(Icons.broken_image_outlined, size: 48),
@@ -330,16 +335,10 @@ class _SpecialistDetailScreenState extends State<SpecialistDetailScreen> {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 Expanded(
-                                  child: Image.network(
-                                    image.imageUrl,
+                                  child: CustomImageCache(
+                                    imageUrl: image.imageUrl,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => Container(
-                                      color: AppColors.silverLight,
-                                      child: const Icon(
-                                        Icons.image_not_supported_outlined,
-                                        color: AppColors.grayMuted,
-                                      ),
-                                    ),
+                                    memCacheWidth: 600,
                                   ),
                                 ),
                                 Padding(
